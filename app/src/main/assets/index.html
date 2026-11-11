@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Сметчик - Автономный</title>
+
+    <!-- Библиотеки для PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <!-- Библиотека Supabase (для голоса) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #0f0f0f; color: white; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .container { width: 100%; max-width: 500px; background: #1a1a1a; padding: 20px; border-radius: 15px; border: 1px solid #333; margin-bottom: 20px; }
+        h2 { text-align: center; color: #00c2ff; margin-top: 0; }
+
+        .mic-btn { width: 100%; padding: 20px; font-size: 18px; font-weight: bold; color: white; background: #00c2ff; border: none; border-radius: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: background 0.3s; }
+        .mic-btn.recording { background: #ff4444; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+        .divider { text-align: center; margin: 20px 0; color: #666; font-size: 14px; position: relative; }
+        .divider::before, .divider::after { content: ''; position: absolute; top: 50%; width: 30%; height: 1px; background: #333; }
+        .divider::before { left: 0; } .divider::after { right: 0; }
+
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-size: 14px; color: #888; margin-bottom: 5px; }
+        input, select { width: 100%; padding: 12px; font-size: 16px; background: #222; color: white; border: 1px solid #444; border-radius: 8px; box-sizing: border-box; }
+        input:focus, select:focus { border-color: #00c2ff; outline: none; }
+
+        .btn-add { width: 100%; padding: 15px; font-size: 16px; font-weight: bold; color: white; background: #28a745; border: none; border-radius: 8px; cursor: pointer; margin-top: 10px; }
+
+        #status { text-align: center; margin-top: 10px; font-size: 14px; color: yellow; min-height: 20px; white-space: pre-wrap; }
+
+        .list-container { width: 100%; max-width: 500px; background: #1a1a1a; padding: 20px; border-radius: 15px; border: 1px solid #333; margin-bottom: 20px; }
+        .list-header { color: #00c2ff; margin-top: 0; margin-bottom: 15px; border-bottom: 1px solid #444; padding-bottom: 10px; }
+        .estimate-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #333; font-size: 14px; }
+        .estimate-item:last-child { border-bottom: none; }
+        .item-info { flex: 1; }
+        .item-name { font-weight: bold; }
+        .item-details { color: #888; font-size: 12px; margin-top: 4px; }
+        .item-total { color: #00ff88; font-weight: bold; margin-left: 10px; }
+        .delete-item-btn { background: none; border: none; color: #ff4444; cursor: pointer; font-size: 18px; margin-left: 10px; }
+        .total-row { display: flex; justify-content: space-between; margin-top: 20px; padding-top: 15px; border-top: 2px solid #444; font-size: 18px; font-weight: bold; color: #00ff88; }
+
+        .export-buttons { display: flex; gap: 10px; margin-top: 20px; }
+        .btn-export { flex: 1; padding: 15px; font-size: 14px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; color: white; text-align: center; }
+        .btn-pdf { background-color: #d9534f; }
+        .btn-share { background-color: #00c2ff; }
+    </style>
+</head>
+<body>
+
+<div class="container" id="form-container">
+    <h2>Добавить работу</h2>
+
+    <button id="mic-btn" class="mic-btn">
+        <span style="font-size: 24px;">🎤</span> Нажмите и говорите
+    </button>
+    <div id="status"></div>
+
+    <div class="divider">ИЛИ ВВЕДИТЕ ВРУЧНУЮ</div>
+
+    <div class="form-group">
+        <label>Название работы</label>
+        <input type="text" id="work-name" list="work-suggestions" placeholder="Например: Штукатурка стен" autocomplete="off">
+        <datalist id="work-suggestions"></datalist>
+    </div>
+
+    <div style="display: flex; gap: 10px;">
+        <div class="form-group" style="flex: 2;">
+            <label>Кол-во</label>
+            <input type="number" id="work-qty" placeholder="0" step="0.1">
+        </div>
+        <div class="form-group" style="flex: 1;">
+            <label>Ед. изм.</label>
+            <select id="work-unit">
+                <option value="м²">м²</option>
+                <option value="м.п.">м.п.</option>
+                <option value="шт.">шт.</option>
+                <option value="компл.">компл.</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>Цена за единицу (₽)</label>
+        <input type="number" id="work-price" placeholder="0">
+    </div>
+
+    <button id="add-btn" class="btn-add">Добавить в смету</button>
+</div>
+
+<div class="list-container" id="estimate-container">
+    <h3 class="list-header" id="list-header-title">Текущая смета</h3>
+    <div id="estimate-list">
+        <p style="color: #666; font-size: 14px; text-align: center;">Смета пока пуста</p>
+    </div>
+    <div class="total-row" id="total-row" style="display: none;">
+        <span>Итого:</span>
+        <span id="total-sum">0 ₽</span>
+    </div>
+
+    <div class="export-buttons" id="export-buttons" style="display: none;">
+        <button class="btn-export btn-pdf" onclick="downloadPDF()">📄 Скачать PDF</button>
+        <button class="btn-export btn-share" id="btn-share" onclick="shareEstimate()">📤 Отправить</button>
+    </div>
+</div>
+
+<script>
+    // !!! ВСТАВЬ СВОЙ КЛЮЧ ANON PUBLIC ИЗ SUPABASE СЮДА !!!
+    const SUPABASE_URL = 'https://xfcgzejssqlceostxadn.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_pvtp816p9u2rIO9YEtoR3A_znoF9ab8';
+
+    // Аварийная защита: если Supabase не загрузится, приложение не упадет
+    let supabaseClient;
+    try {
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    } catch (e) {
+        console.warn("Ошибка Supabase:", e);
+    }
+
+    let mediaRecorder;
+    let audioChunks = [];
+    let currentStream = null;
+    let currentEstimate = JSON.parse(localStorage.getItem('my_estimate')) || [];
+    let savedPrices = JSON.parse(localStorage.getItem('my_prices')) || {};
+
+    const micBtn = document.getElementById('mic-btn');
+    const statusDiv = document.getElementById('status');
+
+    function initApp() {
+        updateSuggestions();
+        if (window.location.hash.includes('#est=')) {
+            document.getElementById('form-container').style.display = 'none';
+            document.getElementById('list-header-title').innerText = 'Смета от прораба';
+            document.getElementById('btn-share').style.display = 'none';
+
+            const base64Data = window.location.hash.replace('#est=', '');
+            try {
+                const decodedData = decodeURIComponent(escape(window.atob(base64Data)));
+                currentEstimate = JSON.parse(decodedData);
+                renderEstimate();
+            } catch(e) {
+                alert('Ошибка чтения сметы');
+                renderEstimate();
+            }
+        } else {
+            renderEstimate();
+        }
+    }
+    initApp();
+
+    function updateSuggestions() {
+        const datalist = document.getElementById('work-suggestions');
+        datalist.innerHTML = '';
+        for (const name in savedPrices) {
+            const option = document.createElement('option');
+            option.value = name;
+            datalist.appendChild(option);
+        }
+    }
+
+    document.getElementById('work-name').addEventListener('input', (e) => {
+        const name = e.target.value.trim().toLowerCase();
+        if (savedPrices[name]) {
+            document.getElementById('work-price').value = savedPrices[name];
+        }
+    });
+
+    micBtn.addEventListener('click', async () => {
+        if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+            await startRecording();
+        } else {
+            mediaRecorder.stop();
+        }
+    });
+
+    async function startRecording() {
+        try {
+            if (currentStream) currentStream.getTracks().forEach(track => track.stop());
+            currentStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(currentStream);
+            audioChunks = [];
+
+            mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
+
+            mediaRecorder.onstop = async () => {
+                micBtn.classList.remove('recording');
+                micBtn.innerHTML = '<span style="font-size: 24px;">🎤</span> Нажмите и говорите';
+                statusDiv.style.color = 'yellow';
+                statusDiv.innerText = 'Отправка на распознавание...';
+
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                await sendToAI(audioBlob);
+
+                if (currentStream) {
+                    currentStream.getTracks().forEach(track => track.stop());
+                    currentStream = null;
+                }
+            };
+
+            mediaRecorder.start();
+            micBtn.classList.add('recording');
+            micBtn.innerHTML = '<span style="font-size: 24px;">🛑</span> Идет запись... Нажмите, чтобы остановить';
+            statusDiv.innerText = 'Говорите...';
+        } catch (err) {
+            statusDiv.style.color = 'red';
+            statusDiv.innerText = 'Ошибка доступа к микрофону: ' + err.message;
+        }
+    }
+
+    async function sendToAI(audioBlob) {
+        if (!supabaseClient) {
+            statusDiv.innerText = 'Ошибка: нет подключения к серверу распознавания.';
+            return;
+        }
+        try {
+            const formData = new FormData();
+            formData.append('audio', audioBlob, 'voice.webm');
+
+            const { data, error } = await supabaseClient.functions.invoke('process_voice', {
+                body: formData
+            });
+
+            if (error) throw error;
+
+            statusDiv.style.color = 'lightgreen';
+            statusDiv.innerText = `Вы сказали: "${data.text}"`;
+
+            if (data.works && data.works.length > 0) {
+                const firstWork = data.works[0];
+                document.getElementById('work-name').value = firstWork.work;
+                document.getElementById('work-qty').value = firstWork.qty;
+                document.getElementById('work-unit').value = firstWork.unit;
+
+                const nameKey = firstWork.work.trim().toLowerCase();
+                if (savedPrices[nameKey]) {
+                    document.getElementById('work-price').value = savedPrices[nameKey];
+                    statusDiv.innerText += '\n(Цена подставлена из прайса!)';
+                } else {
+                    statusDiv.innerText += '\n(Введите цену!)';
+                }
+            }
+        } catch (error) {
+            statusDiv.style.color = 'red';
+            statusDiv.innerText = 'Ошибка распознавания: ' + (error.message || JSON.stringify(error));
+        } finally {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+                currentStream = null;
+            }
+        }
+    }
+
+    document.getElementById('add-btn').addEventListener('click', () => {
+        const name = document.getElementById('work-name').value;
+        const qty = parseFloat(document.getElementById('work-qty').value);
+        const unit = document.getElementById('work-unit').value;
+        const price = parseFloat(document.getElementById('work-price').value);
+
+        if (!name || isNaN(qty) || isNaN(price)) {
+            alert('Заполните все поля правильно!');
+            return;
+        }
+
+        const nameKey = name.trim().toLowerCase();
+        if (!savedPrices[nameKey]) {
+            savedPrices[nameKey] = price;
+            localStorage.setItem('my_prices', JSON.stringify(savedPrices));
+            updateSuggestions();
+        }
+
+        const total = qty * price;
+        currentEstimate.push({ name, qty, unit, price, total });
+        localStorage.setItem('my_estimate', JSON.stringify(currentEstimate));
+
+        document.getElementById('work-name').value = '';
+        document.getElementById('work-qty').value = '';
+        document.getElementById('work-price').value = '';
+        statusDiv.innerText = '';
+
+        renderEstimate();
+    });
+
+    window.deleteItem = (index) => {
+        currentEstimate.splice(index, 1);
+        localStorage.setItem('my_estimate', JSON.stringify(currentEstimate));
+        renderEstimate();
+    };
+
+    function renderEstimate() {
+        const listDiv = document.getElementById('estimate-list');
+        const totalRow = document.getElementById('total-row');
+        const totalSumSpan = document.getElementById('total-sum');
+        const exportButtons = document.getElementById('export-buttons');
+        const isCustomer = window.location.hash.includes('#est=');
+
+        if (currentEstimate.length === 0) {
+            listDiv.innerHTML = '<p style="color: #666; font-size: 14px; text-align: center;">Смета пока пуста</p>';
+            totalRow.style.display = 'none';
+            exportButtons.style.display = 'none';
+            return;
+        }
+
+        listDiv.innerHTML = '';
+        let grandTotal = 0;
+
+        currentEstimate.forEach((item, index) => {
+            grandTotal += item.total;
+            const div = document.createElement('div');
+            div.className = 'estimate-item';
+            div.innerHTML = `
+                <div class="item-info">
+                    <div class="item-name">${item.name}</div>
+                    <div class="item-details">${item.qty} ${item.unit} × ${item.price} ₽</div>
+                </div>
+                <div style="display:flex; align-items:center;">
+                    <div class="item-total">${item.total.toLocaleString('ru-RU')} ₽</div>
+                    ${!isCustomer ? `<button class="delete-item-btn" onclick="deleteItem(${index})" title="Удалить">✕</button>` : ''}
+                </div>
+            `;
+            listDiv.appendChild(div);
+        });
+
+        totalRow.style.display = 'flex';
+        totalSumSpan.innerText = grandTotal.toLocaleString('ru-RU') + ' ₽';
+        exportButtons.style.display = 'flex';
+    }
+
+    window.downloadPDF = async () => {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+
+        const tempDiv = document.createElement('div');
+        tempDiv.style.width = '800px';
+        tempDiv.style.padding = '40px';
+        tempDiv.style.backgroundColor = '#fff';
+        tempDiv.style.color = '#000';
+        tempDiv.style.fontFamily = 'Arial, sans-serif';
+
+        let rowsHtml = '';
+        let total = 0;
+        currentEstimate.forEach(item => {
+            total += item.total;
+            rowsHtml += `
+                <tr>
+                    <td style="border: 1px solid #ccc; padding: 8px;">${item.name}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px;">${item.qty} ${item.unit}</td>
+                    <td style="border: 1px solid #ccc; padding: 8px;">${item.price} ₽</td>
+                    <td style="border: 1px solid #ccc; padding: 8px; font-weight: bold;">${item.total.toLocaleString('ru-RU')} ₽</td>
+                </tr>
+            `;
+        });
+
+        tempDiv.innerHTML = `
+            <h1 style="text-align: center; margin-bottom: 5px;">Смета на работы</h1>
+            <p style="text-align: center; color: #666; margin-bottom: 20px;">Сформировано в приложении Сметчик</p>
+            <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                <thead>
+                    <tr style="background: #eee;">
+                        <th style="border: 1px solid #ccc; padding: 8px; text-align: left;">Наименование</th>
+                        <th style="border: 1px solid #ccc; padding: 8px; text-align: left;">Кол-во</th>
+                        <th style="border: 1px solid #ccc; padding: 8px; text-align: left;">Цена</th>
+                        <th style="border: 1px solid #ccc; padding: 8px; text-align: left;">Сумма</th>
+                    </tr>
+                </thead>
+                <tbody>${rowsHtml}</tbody>
+            </table>
+            <h2 style="text-align: right; margin-top: 20px; color: #00a000;">Итого: ${total.toLocaleString('ru-RU')} ₽</h2>
+        `;
+
+        document.body.appendChild(tempDiv);
+        const canvas = await html2canvas(tempDiv, { scale: 2 });
+        const imgData = canvas.toDataURL('image/jpeg');
+
+        const pdfWidth = doc.internal.pageSize.getWidth();
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+
+        doc.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+        doc.save('Смета.pdf');
+        document.body.removeChild(tempDiv);
+    };
+
+    window.shareEstimate = async () => {
+        const jsonStr = JSON.stringify(currentEstimate);
+        const base64Data = window.btoa(unescape(encodeURIComponent(jsonStr)));
+        const url = window.location.origin + window.location.pathname + '#est=' + base64Data;
+
+        if (navigator.share) {
+            try {
+                await navigator.share({ title: 'Смета', text: 'Ссылка на смету:', url: url });
+            } catch (err) { console.log('Шаринг отменен', err); }
+        } else {
+            await navigator.clipboard.writeText(url);
+            alert('Ссылка на смету скопирована!\n\nОтправьте её заказчику.');
+        }
+    };
+</script>
+
+</body>
+</html>
