@@ -110,23 +110,21 @@
 </div>
 
 <script>
-    // !!! ВСТАВЬ СВОЙ КЛЮЧ ANON PUBLIC ИЗ SUPABASE СЮДА !!!
     const SUPABASE_URL = 'https://xfcgzejssqlceostxadn.supabase.co';
     const SUPABASE_ANON_KEY = 'sb_publishable_pvtp816p9u2rIO9YEtoR3A_znoF9ab8';
 
-    // Аварийная защита: если Supabase не загрузится, приложение не упадет
     let supabaseClient;
     try {
         supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    } catch (e) {
-        console.warn("Ошибка Supabase:", e);
-    }
+    } catch (e) { console.warn("Ошибка Supabase:", e); }
 
     let mediaRecorder;
     let audioChunks = [];
     let currentStream = null;
+
+    // Инициализация данных из LocalStorage
     let currentEstimate = JSON.parse(localStorage.getItem('my_estimate')) || [];
-    let savedPrices = JSON.parse(localStorage.getItem('my_prices')) || {};
+    let savedPrices = JSON.parse(localStorage.getItem('my_prices')) || {}; // Справочник цен
 
     const micBtn = document.getElementById('mic-btn');
     const statusDiv = document.getElementById('status');
@@ -163,13 +161,15 @@
         }
     }
 
+    // Автоматическая подстановка цены при вводе названия
     document.getElementById('work-name').addEventListener('input', (e) => {
-        const name = e.target.value.trim().toLowerCase();
-        if (savedPrices[name]) {
-            document.getElementById('work-price').value = savedPrices[name];
+        const nameKey = e.target.value.trim().toLowerCase();
+        if (savedPrices[nameKey]) {
+            document.getElementById('work-price').value = savedPrices[nameKey];
         }
     });
 
+    // Запись голоса
     micBtn.addEventListener('click', async () => {
         if (!mediaRecorder || mediaRecorder.state === 'inactive') {
             await startRecording();
@@ -214,7 +214,7 @@
 
     async function sendToAI(audioBlob) {
         if (!supabaseClient) {
-            statusDiv.innerText = 'Ошибка: нет подключения к серверу распознавания.';
+            statusDiv.innerText = 'Ошибка: нет подключения к серверу.';
             return;
         }
         try {
@@ -239,7 +239,7 @@
                 const nameKey = firstWork.work.trim().toLowerCase();
                 if (savedPrices[nameKey]) {
                     document.getElementById('work-price').value = savedPrices[nameKey];
-                    statusDiv.innerText += '\n(Цена подставлена из прайса!)';
+                    statusDiv.innerText += '\n(Цена из справочника!)';
                 } else {
                     statusDiv.innerText += '\n(Введите цену!)';
                 }
@@ -255,6 +255,7 @@
         }
     }
 
+    // Добавление работы в смету и ОБНОВЛЕНИЕ справочника цен
     document.getElementById('add-btn').addEventListener('click', () => {
         const name = document.getElementById('work-name').value;
         const qty = parseFloat(document.getElementById('work-qty').value);
@@ -267,11 +268,11 @@
         }
 
         const nameKey = name.trim().toLowerCase();
-        if (!savedPrices[nameKey]) {
-            savedPrices[nameKey] = price;
-            localStorage.setItem('my_prices', JSON.stringify(savedPrices));
-            updateSuggestions();
-        }
+
+        // ВАЖНО: Всегда перезаписываем цену в справочнике, если она изменилась
+        savedPrices[nameKey] = price;
+        localStorage.setItem('my_prices', JSON.stringify(savedPrices));
+        updateSuggestions();
 
         const total = qty * price;
         currentEstimate.push({ name, qty, unit, price, total });
@@ -330,43 +331,38 @@
         exportButtons.style.display = 'flex';
     }
 
+    // Скачивание PDF
     window.downloadPDF = async () => {
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
-
         const tempDiv = document.createElement('div');
         tempDiv.style.width = '800px';
         tempDiv.style.padding = '40px';
         tempDiv.style.backgroundColor = '#fff';
         tempDiv.style.color = '#000';
-        tempDiv.style.fontFamily = 'Arial, sans-serif';
 
         let rowsHtml = '';
         let total = 0;
         currentEstimate.forEach(item => {
             total += item.total;
-            rowsHtml += `
-                <tr>
-                    <td style="border: 1px solid #ccc; padding: 8px;">${item.name}</td>
-                    <td style="border: 1px solid #ccc; padding: 8px;">${item.qty} ${item.unit}</td>
-                    <td style="border: 1px solid #ccc; padding: 8px;">${item.price} ₽</td>
-                    <td style="border: 1px solid #ccc; padding: 8px; font-weight: bold;">${item.total.toLocaleString('ru-RU')} ₽</td>
-                </tr>
-            `;
+            rowsHtml += `<tr>
+                <td style="border: 1px solid #ccc; padding: 8px;">${item.name}</td>
+                <td style="border: 1px solid #ccc; padding: 8px;">${item.qty} ${item.unit}</td>
+                <td style="border: 1px solid #ccc; padding: 8px;">${item.price} ₽</td>
+                <td style="border: 1px solid #ccc; padding: 8px; font-weight: bold;">${item.total.toLocaleString('ru-RU')} ₽</td>
+            </tr>`;
         });
 
         tempDiv.innerHTML = `
             <h1 style="text-align: center; margin-bottom: 5px;">Смета на работы</h1>
             <p style="text-align: center; color: #666; margin-bottom: 20px;">Сформировано в приложении Сметчик</p>
             <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
-                <thead>
-                    <tr style="background: #eee;">
-                        <th style="border: 1px solid #ccc; padding: 8px; text-align: left;">Наименование</th>
-                        <th style="border: 1px solid #ccc; padding: 8px; text-align: left;">Кол-во</th>
-                        <th style="border: 1px solid #ccc; padding: 8px; text-align: left;">Цена</th>
-                        <th style="border: 1px solid #ccc; padding: 8px; text-align: left;">Сумма</th>
-                    </tr>
-                </thead>
+                <thead><tr style="background: #eee;">
+                    <th style="border: 1px solid #ccc; padding: 8px;">Наименование</th>
+                    <th style="border: 1px solid #ccc; padding: 8px;">Кол-во</th>
+                    <th style="border: 1px solid #ccc; padding: 8px;">Цена</th>
+                    <th style="border: 1px solid #ccc; padding: 8px;">Сумма</th>
+                </tr></thead>
                 <tbody>${rowsHtml}</tbody>
             </table>
             <h2 style="text-align: right; margin-top: 20px; color: #00a000;">Итого: ${total.toLocaleString('ru-RU')} ₽</h2>
@@ -375,23 +371,21 @@
         document.body.appendChild(tempDiv);
         const canvas = await html2canvas(tempDiv, { scale: 2 });
         const imgData = canvas.toDataURL('image/jpeg');
-
         const pdfWidth = doc.internal.pageSize.getWidth();
         const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
 
         doc.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
 
-        // --- ОТПРАВЛЯЕМ PDF В JAVA ---
         const pdfBase64 = doc.output('datauristring');
         if (window.AndroidApp) {
-            window.AndroidApp.savePdf(pdfBase64); // Вызов Java-метода
+            window.AndroidApp.savePdf(pdfBase64);
         } else {
-            doc.save('Смета.pdf'); // Запасной вариант для браузера
+            doc.save('Смета.pdf');
         }
-
         document.body.removeChild(tempDiv);
     };
 
+    // Отправка PDF
     window.shareEstimate = async () => {
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
@@ -438,7 +432,7 @@
 
         const pdfBase64 = doc.output('datauristring');
         if (window.AndroidApp) {
-            window.AndroidApp.sharePdf(pdfBase64); // Отправляем файл!
+            window.AndroidApp.sharePdf(pdfBase64);
         } else {
             alert("Отправка файлов доступна только в приложении.");
         }
