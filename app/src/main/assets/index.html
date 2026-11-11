@@ -380,22 +380,67 @@
         const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
 
         doc.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
-        doc.save('Смета.pdf');
+
+        // --- ОТПРАВЛЯЕМ PDF В JAVA ---
+        const pdfBase64 = doc.output('datauristring');
+        if (window.AndroidApp) {
+            window.AndroidApp.savePdf(pdfBase64); // Вызов Java-метода
+        } else {
+            doc.save('Смета.pdf'); // Запасной вариант для браузера
+        }
+
         document.body.removeChild(tempDiv);
     };
 
     window.shareEstimate = async () => {
-        const jsonStr = JSON.stringify(currentEstimate);
-        const base64Data = window.btoa(unescape(encodeURIComponent(jsonStr)));
-        const url = window.location.origin + window.location.pathname + '#est=' + base64Data;
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        const tempDiv = document.createElement('div');
+        tempDiv.style.width = '800px';
+        tempDiv.style.padding = '40px';
+        tempDiv.style.backgroundColor = '#fff';
+        tempDiv.style.color = '#000';
 
-        if (navigator.share) {
-            try {
-                await navigator.share({ title: 'Смета', text: 'Ссылка на смету:', url: url });
-            } catch (err) { console.log('Шаринг отменен', err); }
+        let rowsHtml = '';
+        let total = 0;
+        currentEstimate.forEach(item => {
+            total += item.total;
+            rowsHtml += `<tr>
+                <td style="border: 1px solid #ccc; padding: 8px;">${item.name}</td>
+                <td style="border: 1px solid #ccc; padding: 8px;">${item.qty} ${item.unit}</td>
+                <td style="border: 1px solid #ccc; padding: 8px;">${item.price} ₽</td>
+                <td style="border: 1px solid #ccc; padding: 8px; font-weight: bold;">${item.total.toLocaleString('ru-RU')} ₽</td>
+            </tr>`;
+        });
+
+        tempDiv.innerHTML = `
+            <h1 style="text-align: center;">Смета на работы</h1>
+            <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                <thead><tr style="background: #eee;">
+                    <th style="border: 1px solid #ccc; padding: 8px;">Наименование</th>
+                    <th style="border: 1px solid #ccc; padding: 8px;">Кол-во</th>
+                    <th style="border: 1px solid #ccc; padding: 8px;">Цена</th>
+                    <th style="border: 1px solid #ccc; padding: 8px;">Сумма</th>
+                </tr></thead>
+                <tbody>${rowsHtml}</tbody>
+            </table>
+            <h2 style="text-align: right; color: #00a000;">Итого: ${total.toLocaleString('ru-RU')} ₽</h2>
+        `;
+
+        document.body.appendChild(tempDiv);
+        const canvas = await html2canvas(tempDiv, { scale: 2 });
+        const imgData = canvas.toDataURL('image/jpeg');
+        const pdfWidth = doc.internal.pageSize.getWidth();
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+
+        doc.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+        document.body.removeChild(tempDiv);
+
+        const pdfBase64 = doc.output('datauristring');
+        if (window.AndroidApp) {
+            window.AndroidApp.sharePdf(pdfBase64); // Отправляем файл!
         } else {
-            await navigator.clipboard.writeText(url);
-            alert('Ссылка на смету скопирована!\n\nОтправьте её заказчику.');
+            alert("Отправка файлов доступна только в приложении.");
         }
     };
 </script>

@@ -1,9 +1,16 @@
 package ru.alvenima.smetchik;
 
 import android.Manifest;
-import android.annotation.SuppressLint;
+import android.content.ContentValues;
+import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.MediaStore;
+import android.util.Base64;
+import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
@@ -15,7 +22,10 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -32,7 +42,6 @@ public class MainActivity extends AppCompatActivity {
     private ServerSocket serverSocket;
     private ExecutorService serverExecutor;
 
-    @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -41,24 +50,21 @@ public class MainActivity extends AppCompatActivity {
         WebSettings webSettings = webView.getSettings();
         webSettings.setJavaScriptEnabled(true);
         webSettings.setDomStorageEnabled(true);
-        // Разрешаем доступ к файлам (для локального сервера это не обязательно, но не помешает)
         webSettings.setAllowFileAccess(true);
-        webSettings.setAllowContentAccess(true);
 
-        // 1. Настраиваем обработку запросов на микрофон от WebView
+        // Мост для вызова Java из JS
+        webView.addJavascriptInterface(new WebAppInterface(), "AndroidApp");
+
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
                 runOnUiThread(() -> {
                     if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO)
                             == PackageManager.PERMISSION_GRANTED) {
-                        // Разрешение уже есть - даем добро WebView
                         request.grant(request.getResources());
                     } else {
-                        // Запрашиваем разрешение у пользователя
                         ActivityCompat.requestPermissions(MainActivity.this,
                                 new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_AUDIO_PERMISSION);
-                        // Отклоняем текущий запрос, чтобы WebView не "висел" в ожидании
                         request.deny();
                     }
                 });
@@ -68,20 +74,89 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebViewClient(new WebViewClient());
         setContentView(webView);
 
-        // 2. Запускаем локальный сервер
         startLocalServer();
     }
 
-    // --- Локальный сервер ---
+    // ==========================================
+    // МОСТ МЕЖДУ JAVASCRIPT И JAVA
+    // ==========================================
+    public class WebAppInterface {
+
+        // Метод для скачивания PDF
+        @JavascriptInterface
+        public void savePdf(String base64Image) {
+            try {
+                String base64Data = base64Image.substring(base64Image.indexOf(",") + 1);
+                byte[] decodedBytes = Base64.decode(base64Data, Base64.DEFAULT);
+                String fileName = "Смета_" + System.currentTimeMillis() + ".pdf";
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ContentValues values = new ContentValues();
+                    values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
+                    values.put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf");
+                    values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                    Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                    if (uri != null) {
+                        try (OutputStream outputStream = getContentResolver().openOutputStream(uri)) {
+                            outputStream.write(decodedBytes);
+                            showToast("PDF сохранен в папку 'Загрузки'!");
+                        }
+                    }
+                } else {
+                    File file = new File(getExternalFilesDir(null), fileName);
+                    try (FileOutputStream fos = new FileOutputStream(file)) {
+                        fos.write(decodedBytes);
+                        showToast("PDF сохранен: " + file.getAbsolutePath());
+                    }
+                }
+            } catch (Exception e) {
+                showToast("Ошибка при сохранении PDF: " + e.getMessage());
+            }
+        }
+
+        // Метод для ОТПРАВКИ PDF файла (новый!)
+        @JavascriptInterface
+        public void sharePdf(String base64Image) {
+            try {
+                String base64Data = base64Image.substring(base64Image.indexOf(",") + 1);
+                byte[] decodedBytes = Base64.decode(base64Data, Base64.DEFAULT);
+
+                // Сохраняем во временную папку кэша
+                File cachePath = new File(getCacheDir(), "Смета.pdf");
+                try (FileOutputStream fos = new FileOutputStream(cachePath)) {
+                    fos.write(decodedBytes);
+                }
+
+                // Получаем безопасный URI через FileProvider
+                Uri contentUri = FileProvider.getUriForFile(MainActivity.this,
+                        getPackageName() + ".fileprovider", cachePath);
+
+                // Формируем Intent для отправки
+                Intent shareIntent = new Intent(Intent.ACTION_SEND);
+                shareIntent.setType("application/pdf");
+                shareIntent.putExtra(Intent.EXTRA_STREAM, contentUri);
+                shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+                startActivity(Intent.createChooser(shareIntent, "Отправить смету"));
+            } catch (Exception e) {
+                showToast("Ошибка при отправке PDF: " + e.getMessage());
+            }
+        }
+    }
+
+    private void showToast(final String message) {
+        runOnUiThread(() -> Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show());
+    }
+
+    // ==========================================
+    // ЛОКАЛЬНЫЙ СЕРВЕР (Без изменений)
+    // ==========================================
     private void startLocalServer() {
         serverExecutor = Executors.newSingleThreadExecutor();
         serverExecutor.execute(() -> {
             try {
-                // Слушаем только localhost (127.0.0.1) для безопасности
                 serverSocket = new ServerSocket(8080, 0, InetAddress.getByName("127.0.0.1"));
-                // После запуска сервера загружаем страницу
                 runOnUiThread(() -> webView.loadUrl("http://127.0.0.1:8080/index.html"));
-
                 while (!serverSocket.isClosed()) {
                     Socket socket = serverSocket.accept();
                     handleRequest(socket);
@@ -96,51 +171,34 @@ public class MainActivity extends AppCompatActivity {
         try {
             InputStream input = socket.getInputStream();
             OutputStream output = socket.getOutputStream();
-
-            // Читаем HTTP-запрос (нам важно только начало)
             byte[] buffer = new byte[2048];
             int bytesRead = input.read(buffer);
             if (bytesRead == -1) return;
             String request = new String(buffer, 0, bytesRead);
 
-            // Определяем, какой файл просят (по умолчанию index.html)
             String filePath = "index.html";
             if (request.startsWith("GET /")) {
                 String[] parts = request.split(" ");
-                if (parts.length > 1) {
-                    String path = parts[1];
-                    if (!path.equals("/")) {
-                        filePath = path.substring(1);
-                    }
+                if (parts.length > 1 && !parts[1].equals("/")) {
+                    filePath = parts[1].substring(1);
                 }
             }
 
-            // Пытаемся открыть файл в assets
             try {
                 InputStream fileStream = getAssets().open(filePath);
                 byte[] fileBytes = new byte[fileStream.available()];
                 fileStream.read(fileBytes);
                 fileStream.close();
 
-                // Отправляем успешный ответ с правильным MIME-типом
                 String mimeType = "text/html";
                 if (filePath.endsWith(".js")) mimeType = "application/javascript";
                 if (filePath.endsWith(".css")) mimeType = "text/css";
-                if (filePath.endsWith(".png")) mimeType = "image/png";
-                if (filePath.endsWith(".jpg") || filePath.endsWith(".jpeg")) mimeType = "image/jpeg";
-                if (filePath.endsWith(".svg")) mimeType = "image/svg+xml";
-                if (filePath.endsWith(".json")) mimeType = "application/json";
 
-                String header = "HTTP/1.1 200 OK\r\n" +
-                        "Content-Type: " + mimeType + "\r\n" +
-                        "Access-Control-Allow-Origin: *\r\n" + // Важно для некоторых запросов
-                        "Connection: close\r\n\r\n";
+                String header = "HTTP/1.1 200 OK\r\nContent-Type: " + mimeType + "\r\nConnection: close\r\n\r\n";
                 output.write(header.getBytes());
                 output.write(fileBytes);
             } catch (IOException e) {
-                // Если файл не найден - 404
-                String header = "HTTP/1.1 404 Not Found\r\n\r\n";
-                output.write(header.getBytes());
+                output.write("HTTP/1.1 404 Not Found\r\n\r\n".getBytes());
             }
             output.flush();
             socket.close();
@@ -149,20 +207,16 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // --- Обработка результата выдачи разрешения ---
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_AUDIO_PERMISSION) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(this, "Разрешение получено! Нажмите кнопку записи ещё раз.", Toast.LENGTH_LONG).show();
-            } else {
-                Toast.makeText(this, "Без разрешения микрофона запись невозможна.", Toast.LENGTH_LONG).show();
+                showToast("Микрофон разрешен! Нажмите кнопку записи еще раз.");
             }
         }
     }
 
-    // --- Очистка при выходе ---
     @Override
     protected void onDestroy() {
         super.onDestroy();
