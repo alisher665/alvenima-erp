@@ -18,6 +18,7 @@ import android.util.Base64;
 import android.util.Log;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
+import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -50,7 +51,9 @@ import java.util.concurrent.Executors;
 public class MainActivity extends AppCompatActivity {
 
     private static final int REQUEST_AUDIO_PERMISSION = 101;
+    private static final int FILECHOOSER_RESULTCODE = 102; // Код для выбора фото
     private static final String TAG = "VoskDebug";
+
     private WebView webView;
     private ServerSocket serverSocket;
     private ExecutorService serverExecutor;
@@ -65,11 +68,13 @@ public class MainActivity extends AppCompatActivity {
     private TextToSpeech tts;
     private boolean isTtsReady = false;
 
+    // Переменная для обработки выбора файла из HTML
+    private ValueCallback<Uri[]> mFilePathCallback;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Инициализация TTS с обработчиком окончания речи
         tts = new TextToSpeech(this, status -> {
             if (status == TextToSpeech.SUCCESS) {
                 int result = tts.setLanguage(new Locale("ru", "RU"));
@@ -84,7 +89,6 @@ public class MainActivity extends AppCompatActivity {
 
                         @Override
                         public void onDone(String utteranceId) {
-                            // Когда TTS закончил говорить, сообщаем JS
                             runOnUiThread(() -> {
                                 if (webView != null) {
                                     webView.evaluateJavascript("onTtsDone();", null);
@@ -94,7 +98,6 @@ public class MainActivity extends AppCompatActivity {
 
                         @Override
                         public void onError(String utteranceId) {
-                            // В случае ошибки тоже сообщаем JS, чтобы не застрять
                             runOnUiThread(() -> {
                                 if (webView != null) {
                                     webView.evaluateJavascript("onTtsDone();", null);
@@ -138,12 +141,56 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
             }
+
+            // ОБРАБОТЧИК ВЫБОРА ФАЙЛА ИЗ HTML
+            @Override
+            public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
+                if (mFilePathCallback != null) {
+                    mFilePathCallback.onReceiveValue(null);
+                }
+                mFilePathCallback = filePathCallback;
+
+                Intent intent = fileChooserParams.createIntent();
+                intent.setType("image/*"); // Разрешаем выбирать только картинки
+
+                try {
+                    startActivityForResult(intent, FILECHOOSER_RESULTCODE);
+                } catch (Exception e) {
+                    mFilePathCallback = null;
+                    return false;
+                }
+                return true;
+            }
         });
 
         webView.setWebViewClient(new WebViewClient());
         setContentView(webView);
 
         startLocalServer();
+    }
+
+    // ПОЛУЧАЕМ РЕЗУЛЬТАТ ВЫБОРА ФАЙЛА
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == FILECHOOSER_RESULTCODE) {
+            if (mFilePathCallback == null) {
+                super.onActivityResult(requestCode, resultCode, data);
+                return;
+            }
+
+            Uri[] results = null;
+            if (resultCode == RESULT_OK && data != null) {
+                String dataString = data.getDataString();
+                if (dataString != null) {
+                    results = new Uri[]{Uri.parse(dataString)};
+                }
+            }
+
+            mFilePathCallback.onReceiveValue(results);
+            mFilePathCallback = null;
+        } else {
+            super.onActivityResult(requestCode, resultCode, data);
+        }
     }
 
     public class WebAppInterface {

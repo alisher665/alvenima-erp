@@ -9,7 +9,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
     <style>
-        body { font-family: Arial, sans-serif; background-color: #0f0f0f; color: white; margin: 0; padding: 20px; padding-bottom: 100px; display: flex; flex-direction: column; align-items: center; }
+        body { font-family: Arial, sans-serif; background-color: #0f0f0f; color: white; margin: 0; padding: 20px; padding-bottom: 100px; display: flex; flex-direction: column; align-items: center; overflow-x: hidden; }
         .container { width: 100%; max-width: 500px; background: #1a1a1a; padding: 20px; border-radius: 15px; border: 1px solid #333; margin-bottom: 20px; }
         h2 { text-align: center; color: #00c2ff; margin-top: 0; }
 
@@ -42,12 +42,16 @@
         .list-container { width: 100%; max-width: 500px; background: #1a1a1a; padding: 20px; border-radius: 15px; border: 1px solid #333; margin-bottom: 20px; }
         .list-header { color: #00c2ff; margin-top: 0; margin-bottom: 15px; border-bottom: 1px solid #444; padding-bottom: 10px; }
 
-        .estimate-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #333; font-size: 14px; }
-        .estimate-item:last-child { border-bottom: none; }
-        .item-info { flex: 1; }
-        .item-name { font-weight: bold; }
-        .item-details { color: #888; font-size: 12px; margin-top: 4px; }
-        .item-total { color: #00ff88; font-weight: bold; margin-left: 10px; }
+        /* Дневник и Смета */
+        .finance-item, .estimate-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #333; }
+        .finance-item:last-child, .estimate-item:last-child { border-bottom: none; }
+        .finance-info, .item-info { flex: 1; }
+        .finance-name, .item-name { font-weight: bold; font-size: 15px; }
+        .finance-type, .item-details { font-size: 12px; margin-top: 4px; }
+        .type-income { color: #28a745; }
+        .type-expense { color: #ff4444; }
+        .item-total { color: #00ff88; font-weight: bold; margin-left: 10px; font-size: 16px; }
+        .finance-amount { font-weight: bold; font-size: 16px; margin-left: 10px; }
         .delete-item-btn { background: none; border: none; color: #ff4444; cursor: pointer; font-size: 18px; margin-left: 10px; }
 
         .total-row { display: flex; justify-content: space-between; margin-top: 20px; padding-top: 15px; border-top: 2px solid #444; font-size: 18px; font-weight: bold; color: #00ff88; }
@@ -57,14 +61,6 @@
         .btn-pdf { background-color: #d9534f; }
         .btn-share { background-color: #00c2ff; }
 
-        .finance-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #333; }
-        .finance-item:last-child { border-bottom: none; }
-        .finance-info { flex: 1; }
-        .finance-name { font-weight: bold; font-size: 15px; }
-        .finance-type { font-size: 12px; margin-top: 4px; }
-        .type-income { color: #28a745; }
-        .type-expense { color: #ff4444; }
-        .finance-amount { font-weight: bold; font-size: 16px; margin-left: 10px; }
         .finance-balance { display: flex; justify-content: space-between; margin-top: 20px; padding-top: 15px; border-top: 2px solid #444; font-size: 18px; font-weight: bold; }
 
         .hidden { display: none !important; }
@@ -79,7 +75,7 @@
 
 <div id="status" style="width: 100%; max-width: 500px; margin-bottom: 10px;">Загрузка модели...</div>
 
-<!-- ================= ВКЛАДКА 1: СМЕТА ================= -->
+<!-- ВКЛАДКА 1: СМЕТА -->
 <div id="view-smeta" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
     <div class="container" id="form-container">
         <h2>Добавить работу</h2>
@@ -129,6 +125,14 @@
             <span id="total-sum">0 ₽</span>
         </div>
 
+        <div style="margin-top: 20px; border-top: 1px solid #333; padding-top: 15px; text-align: center;">
+            <input type="file" id="logo-upload" accept="image/*" style="display: none;" onchange="handleLogoUpload(event)">
+            <button onclick="document.getElementById('logo-upload').click()" style="padding: 10px 15px; background: #444; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px;">
+                🖼️ Загрузить логотип для PDF
+            </button>
+            <div id="logo-preview" style="margin-top: 10px; display: flex; justify-content: center; align-items: center; gap: 10px;"></div>
+        </div>
+
         <div class="export-buttons" id="export-buttons" style="display: none;">
             <button class="btn-export btn-pdf" onclick="downloadPDF()">📄 Скачать PDF</button>
             <button class="btn-export btn-share" onclick="shareEstimate()">📤 Отправить</button>
@@ -136,7 +140,7 @@
     </div>
 </div>
 
-<!-- ================= ВКЛАДКА 2: ДНЕВНИК ================= -->
+<!-- ВКЛАДКА 2: ДНЕВНИК -->
 <div id="view-dnevnik" class="hidden" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
     <div class="container">
         <h2>Финансы</h2>
@@ -176,6 +180,78 @@
     let awaitingConfirm = false;
     let pendingDeleteAction = null;
     let wasRecordingBeforeTts = false;
+
+    // ==========================================
+    // 1. СВАЙПЫ (ПЕРЕКЛЮЧЕНИЕ ВКЛАДОК)
+    // ==========================================
+    let touchStartX = 0;
+    let touchStartY = 0;
+
+    document.body.addEventListener('touchstart', e => {
+        touchStartX = e.changedTouches[0].screenX;
+        touchStartY = e.changedTouches[0].screenY;
+    }, { passive: true });
+
+    document.body.addEventListener('touchend', e => {
+        let touchEndX = e.changedTouches[0].screenX;
+        let touchEndY = e.changedTouches[0].screenY;
+
+        let diffX = touchEndX - touchStartX;
+        let diffY = touchEndY - touchStartY;
+
+        // Проверяем, что это именно свайп (влево/вправо) и он не вертикальный
+        if (Math.abs(diffX) > 60 && Math.abs(diffY) < 50) {
+            if (diffX > 0) {
+                // Свайп вправо (назад в Смету)
+                if (!document.getElementById('view-dnevnik').classList.contains('hidden')) {
+                    switchTab('smeta');
+                }
+            } else {
+                // Свайп влево (вперед в Дневник)
+                if (!document.getElementById('view-smeta').classList.contains('hidden')) {
+                    switchTab('dnevnik');
+                }
+            }
+        }
+    }, { passive: true });
+
+    // ==========================================
+    // 2. БАЗОВЫЕ ФУНКЦИИ
+    // ==========================================
+    window.handleLogoUpload = function(event) {
+        const file = event.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const base64 = e.target.result;
+                localStorage.setItem('my_logo', base64);
+                updateLogoPreview();
+                statusDiv.innerText = "Логотип сохранен для PDF!";
+                statusDiv.style.color = "lightgreen";
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    function updateLogoPreview() {
+        const savedLogo = localStorage.getItem('my_logo');
+        const previewDiv = document.getElementById('logo-preview');
+        if (savedLogo) {
+            previewDiv.innerHTML = `
+                <img src="${savedLogo}" style="max-height: 50px; max-width: 100px; border-radius: 5px; border: 1px solid #444; background: white; padding: 2px;">
+                <button onclick="removeLogo()" style="background: none; border: none; color: #ff4444; font-size: 12px; cursor: pointer; text-decoration: underline;">Удалить</button>
+            `;
+        } else {
+            previewDiv.innerHTML = '<span style="color: #666; font-size: 12px;">Логотип не выбран</span>';
+        }
+    }
+
+    window.removeLogo = function() {
+        localStorage.removeItem('my_logo');
+        updateLogoPreview();
+        statusDiv.innerText = "Логотип удален.";
+        statusDiv.style.color = "yellow";
+    };
 
     function speak(text) {
         if (isRecording && window.AndroidApp && window.AndroidApp.stopVosk) {
@@ -304,7 +380,6 @@
         let lower = text.toLowerCase().replace(/,/g, '.');
         let cleanText = lower.replace(/[^а-яё0-9]/g, ' ').replace(/\s+/g, ' ').trim();
 
-        // --- 1. ПОДТВЕРЖДЕНИЕ УДАЛЕНИЯ ---
         if (awaitingConfirm) {
             let wordsArray = cleanText.split(' ');
 
@@ -338,20 +413,17 @@
                 return;
             }
 
-            // Если не Да и не Нет
             awaitingConfirm = false;
             pendingDeleteAction = null;
             statusDiv.innerText = "Отменено.";
             speak("Отменено");
         }
 
-        // --- 2. КОМАНДА "ПЕРЕДЕЛАЙ" ---
         if (cleanText.includes("передела") || cleanText.includes("заново") || cleanText.includes("сброс") || cleanText.includes("очисти поля")) {
             clearFields();
             return;
         }
 
-        // --- 3. СТРОГАЯ КОМАНДА УДАЛЕНИЯ ---
         let isDeleteSmeta = /удал(ить|и)?\s+смет[уа]/.test(cleanText);
         let isDeleteDnevnik = /удал(ить|и)?\s+дневник[а]?/.test(cleanText);
 
@@ -359,7 +431,6 @@
             awaitingConfirm = true;
             pendingDeleteAction = isDeleteSmeta ? 'smeta' : 'dnevnik';
 
-            // Короткий вопрос
             let textToSay = "Хотите удалить?";
 
             statusDiv.innerText = `⚠️ ${textToSay}`;
@@ -368,7 +439,6 @@
             return;
         }
 
-        // --- 4. ПАРСИНГ РАБОТЫ ---
         if (currentMicMode === 'smeta') {
             parseSmetaVoice(lower);
         } else if (currentMicMode === 'dnevnik') {
@@ -525,7 +595,86 @@
             : `💸 Расход: ${finalName} — ${amount.toLocaleString('ru-RU')} ₽`;
     }
 
+    // ==========================================
+    // 3. СМЕТА (С ГАРМОШКОЙ)
+    // ==========================================
     let currentEstimate = JSON.parse(localStorage.getItem('my_estimate')) || [];
+
+    // Миграция старых записей (добавляем дату и id, если их нет)
+    currentEstimate = currentEstimate.map((item, index) => {
+        if (!item.date) item.date = new Date().toLocaleDateString('ru-RU');
+        if (!item.id) item.id = Date.now() + index;
+        return item;
+    });
+    localStorage.setItem('my_estimate', JSON.stringify(currentEstimate));
+
+    let smetaToggledYears = {};
+    let smetaToggledMonths = {};
+    let smetaToggledDays = {};
+
+    const MONTH_NAMES = {
+        "01": "Январь", "02": "Февраль", "03": "Март", "04": "Апрель",
+        "05": "Май", "06": "Июнь", "07": "Июль", "08": "Август",
+        "09": "Сентябрь", "10": "Октябрь", "11": "Ноябрь", "12": "Декабрь"
+    };
+
+    function getTodayParts() {
+        let today = new Date();
+        let year = today.getFullYear().toString();
+        let month = ('0' + (today.getMonth() + 1)).slice(-2);
+        let day = today.toLocaleDateString('ru-RU');
+        return { year, month, day };
+    }
+
+    window.toggleSmetaYear = function(year) {
+        let contentEl = document.getElementById('smeta-year-content-' + year);
+        let iconEl = document.getElementById('smeta-year-icon-' + year);
+        if (!contentEl) return;
+        let isHidden = contentEl.classList.contains('hidden');
+        if (isHidden) {
+            contentEl.classList.remove('hidden');
+            if (iconEl) iconEl.innerText = '▲';
+            smetaToggledYears[year] = true;
+        } else {
+            contentEl.classList.add('hidden');
+            if (iconEl) iconEl.innerText = '▼';
+            smetaToggledYears[year] = false;
+        }
+    };
+
+    window.toggleSmetaMonth = function(year, month) {
+        let key = year + '-' + month;
+        let contentEl = document.getElementById('smeta-month-content-' + year + '-' + month);
+        let iconEl = document.getElementById('smeta-month-icon-' + year + '-' + month);
+        if (!contentEl) return;
+        let isHidden = contentEl.classList.contains('hidden');
+        if (isHidden) {
+            contentEl.classList.remove('hidden');
+            if (iconEl) iconEl.innerText = '▲';
+            smetaToggledMonths[key] = true;
+        } else {
+            contentEl.classList.add('hidden');
+            if (iconEl) iconEl.innerText = '▼';
+            smetaToggledMonths[key] = false;
+        }
+    };
+
+    window.toggleSmetaDay = function(dateStr) {
+        let safeId = dateStr.replace(/\./g, '_');
+        let contentEl = document.getElementById('smeta-day-content-' + safeId);
+        let iconEl = document.getElementById('smeta-day-icon-' + safeId);
+        if (!contentEl) return;
+        let isHidden = contentEl.classList.contains('hidden');
+        if (isHidden) {
+            contentEl.classList.remove('hidden');
+            if (iconEl) iconEl.innerText = '▲';
+            smetaToggledDays[dateStr] = true;
+        } else {
+            contentEl.classList.add('hidden');
+            if (iconEl) iconEl.innerText = '▼';
+            smetaToggledDays[dateStr] = false;
+        }
+    };
 
     function renderEstimate() {
         const listDiv = document.getElementById('estimate-list');
@@ -540,26 +689,136 @@
             return;
         }
 
-        listDiv.innerHTML = '';
+        let tree = {};
         let grandTotal = 0;
 
-        currentEstimate.forEach((item, index) => {
+        currentEstimate.forEach(item => {
+            let parts = item.date.split('.');
+            let year = parts[2];
+            let month = parts[1];
+
+            if (!tree[year]) tree[year] = {};
+            if (!tree[year][month]) tree[year][month] = {};
+            if (!tree[year][month][item.date]) tree[year][month][item.date] = [];
+
+            tree[year][month][item.date].push(item);
             grandTotal += item.total;
-            const div = document.createElement('div');
-            div.className = 'estimate-item';
-            div.innerHTML = `
-                <div class="item-info">
-                    <div class="item-name">${item.name}</div>
-                    <div class="item-details">${item.qty} ${item.unit} × ${item.price} ₽</div>
-                </div>
-                <div style="display:flex; align-items:center;">
-                    <div class="item-total">${item.total.toLocaleString('ru-RU')} ₽</div>
-                    <button class="delete-item-btn" onclick="deleteItem(${index})">✕</button>
-                </div>
-            `;
-            listDiv.appendChild(div);
         });
 
+        let sortedYears = Object.keys(tree).sort((a, b) => parseInt(b) - parseInt(a));
+        let fullHtml = '';
+
+        sortedYears.forEach(year => {
+            let yearExp = smetaToggledYears[year] !== undefined ? smetaToggledYears[year] : (year === getTodayParts().year);
+            let yearTotal = 0;
+
+            Object.values(tree[year]).forEach(monthObj => {
+                Object.values(monthObj).forEach(dayArr => {
+                    dayArr.forEach(item => yearTotal += item.total);
+                });
+            });
+
+            fullHtml += `
+                <div class="year-group" style="margin-bottom: 15px;">
+                    <div class="year-header" onclick="toggleSmetaYear('${year}')"
+                         style="background: linear-gradient(135deg, #1a2a33, #0d1a20); padding: 15px 18px; border-radius: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 17px; font-weight: bold; color: #00c2ff; border: 1px solid #00c2ff; box-shadow: 0 2px 8px rgba(0,194,255,0.2);">
+                        <span>📅 ${year} год</span>
+                        <span style="display: flex; gap: 12px; align-items: center;">
+                            <span style="color: #00ff88; font-size: 15px;">${yearTotal.toLocaleString('ru-RU')} ₽</span>
+                            <span id="smeta-year-icon-${year}">${yearExp ? '▲' : '▼'}</span>
+                        </span>
+                    </div>
+                    <div id="smeta-year-content-${year}" class="year-content ${yearExp ? '' : 'hidden'}"
+                         style="margin-top: 10px; padding-left: 12px; border-left: 2px solid #00c2ff;">
+            `;
+
+            let sortedMonths = Object.keys(tree[year]).sort((a, b) => parseInt(b) - parseInt(a));
+
+            sortedMonths.forEach(month => {
+                let key = year + '-' + month;
+                let monthExp = smetaToggledMonths[key] !== undefined ? smetaToggledMonths[key] : (key === getTodayParts().year + '-' + getTodayParts().month);
+                let monthTotal = 0;
+
+                Object.values(tree[year][month]).forEach(dayArr => {
+                    dayArr.forEach(item => monthTotal += item.total);
+                });
+
+                fullHtml += `
+                    <div class="month-group" style="margin-bottom: 12px;">
+                        <div class="month-header" onclick="toggleSmetaMonth('${year}', '${month}')"
+                             style="background: #222; padding: 12px 16px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #fff; border: 1px solid #444;">
+                            <span>📆 ${MONTH_NAMES[month]} ${year}</span>
+                            <span style="display: flex; gap: 12px; align-items: center;">
+                                <span style="color: #00ff88; font-size: 14px;">${monthTotal.toLocaleString('ru-RU')} ₽</span>
+                                <span id="smeta-month-icon-${year}-${month}">${monthExp ? '▲' : '▼'}</span>
+                            </span>
+                        </div>
+                        <div id="smeta-month-content-${year}-${month}" class="month-content ${monthExp ? '' : 'hidden'}"
+                             style="margin-top: 8px; padding-left: 12px; border-left: 2px solid #444;">
+                `;
+
+                let sortedDays = Object.keys(tree[year][month]).sort((a, b) => {
+                    return parseInt(b.split('.')[0]) - parseInt(a.split('.')[0]);
+                });
+
+                sortedDays.forEach(date => {
+                    let dayExp = smetaToggledDays[date] !== undefined ? smetaToggledDays[date] : false;
+                    let items = tree[year][month][date];
+                    let dayTotal = 0;
+                    items.forEach(item => dayTotal += item.total);
+
+                    let safeId = date.replace(/\./g, '_');
+
+                    fullHtml += `
+                        <div class="day-group" style="margin-bottom: 8px;">
+                            <div class="day-header" onclick="toggleSmetaDay('${date}')"
+                                 style="background: #1f1f1f; padding: 10px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #ccc; border-radius: 6px; border: 1px solid #333;">
+                                <span>📅 ${date}</span>
+                                <span style="display: flex; gap: 12px; align-items: center;">
+                                    <span style="color: #00ff88; font-size: 13px;">${dayTotal.toLocaleString('ru-RU')} ₽</span>
+                                    <span id="smeta-day-icon-${safeId}">${dayExp ? '▲' : '▼'}</span>
+                                </span>
+                            </div>
+                            <div class="day-content ${dayExp ? '' : 'hidden'}" id="smeta-day-content-${safeId}"
+                                 style="background: #111; padding: 0 12px; border-radius: 0 0 6px 6px;">
+                    `;
+
+                    let sortedItems = [...items].sort((a, b) => b.id - a.id);
+
+                    sortedItems.forEach(item => {
+                        fullHtml += `
+                            <div class="estimate-item">
+                                <div class="item-info">
+                                    <div class="item-name">${item.name}</div>
+                                    <div class="item-details">${item.qty} ${item.unit} × ${item.price} ₽</div>
+                                </div>
+                                <div style="display:flex; align-items:center;">
+                                    <div class="item-total">${item.total.toLocaleString('ru-RU')} ₽</div>
+                                    <button class="delete-item-btn" onclick="deleteEstimateItem(${item.id})">✕</button>
+                                </div>
+                            </div>
+                        `;
+                    });
+
+                    fullHtml += `
+                            </div>
+                        </div>
+                    `;
+                });
+
+                fullHtml += `
+                        </div>
+                    </div>
+                `;
+            });
+
+            fullHtml += `
+                    </div>
+                </div>
+            `;
+        });
+
+        listDiv.innerHTML = fullHtml;
         totalRow.style.display = 'flex';
         totalSumSpan.innerText = grandTotal.toLocaleString('ru-RU') + ' ₽';
         exportButtons.style.display = 'flex';
@@ -582,7 +841,16 @@
         localStorage.setItem('my_prices', JSON.stringify(savedPrices));
 
         const total = qty * price;
-        currentEstimate.push({ name, qty, unit, price, total });
+        currentEstimate.push({
+            id: Date.now(),
+            name,
+            qty,
+            unit,
+            price,
+            total,
+            date: new Date().toLocaleDateString('ru-RU')
+        });
+
         localStorage.setItem('my_estimate', JSON.stringify(currentEstimate));
 
         document.getElementById('work-name').value = '';
@@ -605,13 +873,70 @@
 
     document.getElementById('add-btn').addEventListener('click', addToEstimate);
 
-    window.deleteItem = (index) => {
-        currentEstimate.splice(index, 1);
+    window.deleteEstimateItem = (id) => {
+        currentEstimate = currentEstimate.filter(item => item.id !== id);
         localStorage.setItem('my_estimate', JSON.stringify(currentEstimate));
         renderEstimate();
     };
 
+    // ==========================================
+    // 4. ДНЕВНИК (С ГАРМОШКОЙ)
+    // ==========================================
     let financeData = JSON.parse(localStorage.getItem('my_finance')) || [];
+
+    let dnevnikToggledYears = {};
+    let dnevnikToggledMonths = {};
+    let dnevnikToggledDays = {};
+
+    window.toggleDnevnikYear = function(year) {
+        let contentEl = document.getElementById('dnevnik-year-content-' + year);
+        let iconEl = document.getElementById('dnevnik-year-icon-' + year);
+        if (!contentEl) return;
+        let isHidden = contentEl.classList.contains('hidden');
+        if (isHidden) {
+            contentEl.classList.remove('hidden');
+            if (iconEl) iconEl.innerText = '▲';
+            dnevnikToggledYears[year] = true;
+        } else {
+            contentEl.classList.add('hidden');
+            if (iconEl) iconEl.innerText = '▼';
+            dnevnikToggledYears[year] = false;
+        }
+    };
+
+    window.toggleDnevnikMonth = function(year, month) {
+        let key = year + '-' + month;
+        let contentEl = document.getElementById('dnevnik-month-content-' + year + '-' + month);
+        let iconEl = document.getElementById('dnevnik-month-icon-' + year + '-' + month);
+        if (!contentEl) return;
+        let isHidden = contentEl.classList.contains('hidden');
+        if (isHidden) {
+            contentEl.classList.remove('hidden');
+            if (iconEl) iconEl.innerText = '▲';
+            dnevnikToggledMonths[key] = true;
+        } else {
+            contentEl.classList.add('hidden');
+            if (iconEl) iconEl.innerText = '▼';
+            dnevnikToggledMonths[key] = false;
+        }
+    };
+
+    window.toggleDnevnikDay = function(dateStr) {
+        let safeId = dateStr.replace(/\./g, '_');
+        let contentEl = document.getElementById('dnevnik-day-content-' + safeId);
+        let iconEl = document.getElementById('dnevnik-day-icon-' + safeId);
+        if (!contentEl) return;
+        let isHidden = contentEl.classList.contains('hidden');
+        if (isHidden) {
+            contentEl.classList.remove('hidden');
+            if (iconEl) iconEl.innerText = '▲';
+            dnevnikToggledDays[dateStr] = true;
+        } else {
+            contentEl.classList.add('hidden');
+            if (iconEl) iconEl.innerText = '▼';
+            dnevnikToggledDays[dateStr] = false;
+        }
+    };
 
     function renderFinance() {
         const listDiv = document.getElementById('finance-list');
@@ -626,29 +951,147 @@
         listDiv.innerHTML = '';
         let balance = 0;
 
-        const sortedData = [...financeData].reverse();
+        let tree = {};
+        financeData.forEach(item => {
+            if (!item.date || !item.date.includes('.')) return;
+            let parts = item.date.split('.');
+            let year = parts[2];
+            let month = parts[1];
 
-        sortedData.forEach((item) => {
-            const isIncome = item.type === 'income';
-            const sign = isIncome ? '+' : '-';
-            const colorClass = isIncome ? 'type-income' : 'type-expense';
+            if (!tree[year]) tree[year] = {};
+            if (!tree[year][month]) tree[year][month] = {};
+            if (!tree[year][month][item.date]) tree[year][month][item.date] = [];
 
-            balance += isIncome ? item.amount : -item.amount;
+            tree[year][month][item.date].push(item);
+            balance += item.type === 'income' ? item.amount : -item.amount;
+        });
 
-            const div = document.createElement('div');
-            div.className = 'finance-item';
-            div.innerHTML = `
-                <div class="finance-info">
-                    <div class="finance-name">${item.category}</div>
-                    <div class="finance-type ${colorClass}">${isIncome ? 'Приход' : 'Расход'} • ${item.date}</div>
-                </div>
-                <div style="display:flex; align-items:center;">
-                    <div class="finance-amount ${colorClass}">${sign}${item.amount.toLocaleString('ru-RU')} ₽</div>
-                    <button class="delete-item-btn" onclick="deleteFinance(${item.id})">✕</button>
+        let sortedYears = Object.keys(tree).sort((a, b) => parseInt(b) - parseInt(a));
+        let fullHtml = '';
+
+        sortedYears.forEach(year => {
+            let yearExp = dnevnikToggledYears[year] !== undefined ? dnevnikToggledYears[year] : (year === getTodayParts().year);
+            let yearTotal = 0;
+
+            Object.values(tree[year]).forEach(monthObj => {
+                Object.values(monthObj).forEach(dayArr => {
+                    dayArr.forEach(item => yearTotal += item.type === 'income' ? item.amount : -item.amount);
+                });
+            });
+
+            let yearColor = yearTotal >= 0 ? '#00ff88' : '#ff4444';
+            let yearSign = yearTotal > 0 ? '+' : '';
+
+            fullHtml += `
+                <div class="year-group" style="margin-bottom: 15px;">
+                    <div class="year-header" onclick="toggleDnevnikYear('${year}')"
+                         style="background: linear-gradient(135deg, #1a2a33, #0d1a20); padding: 15px 18px; border-radius: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 17px; font-weight: bold; color: #00c2ff; border: 1px solid #00c2ff; box-shadow: 0 2px 8px rgba(0,194,255,0.2);">
+                        <span>📅 ${year} год</span>
+                        <span style="display: flex; gap: 12px; align-items: center;">
+                            <span style="color: ${yearColor}; font-size: 15px;">${yearSign}${yearTotal.toLocaleString('ru-RU')} ₽</span>
+                            <span id="dnevnik-year-icon-${year}">${yearExp ? '▲' : '▼'}</span>
+                        </span>
+                    </div>
+                    <div id="dnevnik-year-content-${year}" class="year-content ${yearExp ? '' : 'hidden'}"
+                         style="margin-top: 10px; padding-left: 12px; border-left: 2px solid #00c2ff;">
+            `;
+
+            let sortedMonths = Object.keys(tree[year]).sort((a, b) => parseInt(b) - parseInt(a));
+
+            sortedMonths.forEach(month => {
+                let key = year + '-' + month;
+                let monthExp = dnevnikToggledMonths[key] !== undefined ? dnevnikToggledMonths[key] : (key === getTodayParts().year + '-' + getTodayParts().month);
+                let monthTotal = 0;
+
+                Object.values(tree[year][month]).forEach(dayArr => {
+                    dayArr.forEach(item => monthTotal += item.type === 'income' ? item.amount : -item.amount);
+                });
+
+                let monthColor = monthTotal >= 0 ? '#00ff88' : '#ff4444';
+                let monthSign = monthTotal > 0 ? '+' : '';
+
+                fullHtml += `
+                    <div class="month-group" style="margin-bottom: 12px;">
+                        <div class="month-header" onclick="toggleDnevnikMonth('${year}', '${month}')"
+                             style="background: #222; padding: 12px 16px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #fff; border: 1px solid #444;">
+                            <span>📆 ${MONTH_NAMES[month]} ${year}</span>
+                            <span style="display: flex; gap: 12px; align-items: center;">
+                                <span style="color: ${monthColor}; font-size: 14px;">${monthSign}${monthTotal.toLocaleString('ru-RU')} ₽</span>
+                                <span id="dnevnik-month-icon-${year}-${month}">${monthExp ? '▲' : '▼'}</span>
+                            </span>
+                        </div>
+                        <div id="dnevnik-month-content-${year}-${month}" class="month-content ${monthExp ? '' : 'hidden'}"
+                             style="margin-top: 8px; padding-left: 12px; border-left: 2px solid #444;">
+                `;
+
+                let sortedDays = Object.keys(tree[year][month]).sort((a, b) => {
+                    return parseInt(b.split('.')[0]) - parseInt(a.split('.')[0]);
+                });
+
+                sortedDays.forEach(date => {
+                    let dayExp = dnevnikToggledDays[date] !== undefined ? dnevnikToggledDays[date] : false;
+                    let items = tree[year][month][date];
+                    let dayTotal = 0;
+                    items.forEach(item => dayTotal += item.type === 'income' ? item.amount : -item.amount);
+
+                    let dayColor = dayTotal >= 0 ? '#00ff88' : '#ff4444';
+                    let daySign = dayTotal > 0 ? '+' : '';
+                    let safeId = date.replace(/\./g, '_');
+
+                    fullHtml += `
+                        <div class="day-group" style="margin-bottom: 8px;">
+                            <div class="day-header" onclick="toggleDnevnikDay('${date}')"
+                                 style="background: #1f1f1f; padding: 10px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #ccc; border-radius: 6px; border: 1px solid #333;">
+                                <span>📅 ${date}</span>
+                                <span style="display: flex; gap: 12px; align-items: center;">
+                                    <span style="color: ${dayColor}; font-size: 13px;">${daySign}${dayTotal.toLocaleString('ru-RU')} ₽</span>
+                                    <span id="dnevnik-day-icon-${safeId}">${dayExp ? '▲' : '▼'}</span>
+                                </span>
+                            </div>
+                            <div class="day-content ${dayExp ? '' : 'hidden'}" id="dnevnik-day-content-${safeId}"
+                                 style="background: #111; padding: 0 12px; border-radius: 0 0 6px 6px;">
+                    `;
+
+                    let sortedItems = [...items].sort((a, b) => b.id - a.id);
+
+                    sortedItems.forEach(item => {
+                        const isIncome = item.type === 'income';
+                        const sign = isIncome ? '+' : '-';
+                        const colorClass = isIncome ? 'type-income' : 'type-expense';
+
+                        fullHtml += `
+                            <div class="finance-item">
+                                <div class="finance-info">
+                                    <div class="finance-name">${item.category}</div>
+                                    <div class="finance-type ${colorClass}">${isIncome ? 'Приход' : 'Расход'}</div>
+                                </div>
+                                <div style="display:flex; align-items:center;">
+                                    <div class="finance-amount ${colorClass}">${sign}${item.amount.toLocaleString('ru-RU')} ₽</div>
+                                    <button class="delete-item-btn" onclick="deleteFinance(${item.id})">✕</button>
+                                </div>
+                            </div>
+                        `;
+                    });
+
+                    fullHtml += `
+                            </div>
+                        </div>
+                    `;
+                });
+
+                fullHtml += `
+                        </div>
+                    </div>
+                `;
+            });
+
+            fullHtml += `
+                    </div>
                 </div>
             `;
-            listDiv.appendChild(div);
         });
+
+        listDiv.innerHTML = fullHtml;
 
         const balanceColor = balance >= 0 ? '#00ff88' : '#ff4444';
         balanceSpan.style.color = balanceColor;
@@ -665,51 +1108,110 @@
         if (confirm("Вы уверены, что хотите удалить ВСЕ финансовые записи?")) {
             financeData = [];
             localStorage.setItem('my_finance', JSON.stringify(financeData));
+            dnevnikToggledYears = {};
+            dnevnikToggledMonths = {};
+            dnevnikToggledDays = {};
             renderFinance();
             statusDiv.innerText = "Финансы очищены.";
             statusDiv.style.color = "yellow";
         }
     };
 
-    window.downloadPDF = async () => {
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF();
-        const tempDiv = document.createElement('div');
-        tempDiv.style.width = '800px';
-        tempDiv.style.padding = '40px';
-        tempDiv.style.backgroundColor = '#fff';
-        tempDiv.style.color = '#000';
+    // ==========================================
+    // 5. PDF
+    // ==========================================
+    function createPdfHtml() {
+        const dateStr = new Date().toLocaleDateString('ru-RU');
+        const docNumber = Math.floor(Date.now() / 1000).toString().slice(-4);
 
         let rowsHtml = '';
         let total = 0;
-        currentEstimate.forEach(item => {
+        currentEstimate.forEach((item, index) => {
             total += item.total;
-            rowsHtml += `<tr>
-                <td style="border: 1px solid #ccc; padding: 8px;">${item.name}</td>
-                <td style="border: 1px solid #ccc; padding: 8px;">${item.qty} ${item.unit}</td>
-                <td style="border: 1px solid #ccc; padding: 8px;">${item.price} ₽</td>
-                <td style="border: 1px solid #ccc; padding: 8px; font-weight: bold;">${item.total.toLocaleString('ru-RU')} ₽</td>
-            </tr>`;
+            rowsHtml += `
+                <tr>
+                    <td style="border: 1px solid #000; padding: 10px; text-align: center;">${index + 1}</td>
+                    <td style="border: 1px solid #000; padding: 10px;">${item.name}</td>
+                    <td style="border: 1px solid #000; padding: 10px; text-align: center;">${item.unit}</td>
+                    <td style="border: 1px solid #000; padding: 10px; text-align: right;">${item.qty}</td>
+                    <td style="border: 1px solid #000; padding: 10px; text-align: right;">${item.price.toLocaleString('ru-RU')} ₽</td>
+                    <td style="border: 1px solid #000; padding: 10px; text-align: right; font-weight: bold;">${item.total.toLocaleString('ru-RU')} ₽</td>
+                </tr>
+            `;
         });
 
-        tempDiv.innerHTML = `
-            <h1 style="text-align: center; margin-bottom: 5px;">Смета на работы</h1>
-            <p style="text-align: center; color: #666; margin-bottom: 20px;">Сформировано в приложении Сметчик</p>
-            <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
-                <thead><tr style="background: #eee;">
-                    <th style="border: 1px solid #ccc; padding: 8px;">Наименование</th>
-                    <th style="border: 1px solid #ccc; padding: 8px;">Кол-во</th>
-                    <th style="border: 1px solid #ccc; padding: 8px;">Цена</th>
-                    <th style="border: 1px solid #ccc; padding: 8px;">Сумма</th>
-                </tr></thead>
-                <tbody>${rowsHtml}</tbody>
-            </table>
-            <h2 style="text-align: right; margin-top: 20px; color: #00a000;">Итого: ${total.toLocaleString('ru-RU')} ₽</h2>
-        `;
+        const savedLogo = localStorage.getItem('my_logo');
+        let logoHtml = '';
+        if (savedLogo) {
+            logoHtml = `<img src="${savedLogo}" style="max-height: 80px; max-width: 150px; object-fit: contain; margin-bottom: 10px;">`;
+        }
 
+        return `
+            <div style="font-family: 'Times New Roman', Times, serif; color: #000; background: #fff; padding: 40px; width: 800px;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px;">
+                    <div>
+                        <h1 style="margin: 0; font-size: 28px; text-transform: uppercase;">Смета на работы</h1>
+                        <p style="margin: 5px 0 0 0; font-size: 14px; color: #555;">№ ${docNumber} от ${dateStr}</p>
+                    </div>
+                    <div style="text-align: right;">
+                        ${logoHtml}
+                        <p style="margin: 0; font-size: 14px;"><b>Исполнитель:</b> Прораб</p>
+                        <p style="margin: 5px 0 0 0; font-size: 14px;">Сформировано в приложении «Сметчик»</p>
+                    </div>
+                </div>
+
+                <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 20px;">
+                    <thead>
+                        <tr style="background: #eee;">
+                            <th style="border: 1px solid #000; padding: 10px;">№</th>
+                            <th style="border: 1px solid #000; padding: 10px; text-align: left;">Наименование работ</th>
+                            <th style="border: 1px solid #000; padding: 10px;">Ед. изм.</th>
+                            <th style="border: 1px solid #000; padding: 10px;">Кол-во</th>
+                            <th style="border: 1px solid #000; padding: 10px;">Цена за ед.</th>
+                            <th style="border: 1px solid #000; padding: 10px;">Сумма</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rowsHtml}
+                    </tbody>
+                </table>
+
+                <div style="text-align: right; margin-bottom: 50px;">
+                    <h2 style="margin: 0; font-size: 20px; border-bottom: 2px solid #000; display: inline-block; padding-bottom: 5px;">
+                        ИТОГО: ${total.toLocaleString('ru-RU')} ₽
+                    </h2>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; margin-top: 50px; font-size: 14px;">
+                    <div style="width: 45%;">
+                        <p style="margin: 0 0 20px 0;"><b>Заказчик:</b></p>
+                        <div style="border-bottom: 1px solid #000; width: 100%; margin-bottom: 5px;"></div>
+                        <p style="margin: 0; font-size: 12px; text-align: center; color: #555;">(подпись)</p>
+                    </div>
+                    <div style="width: 45%;">
+                        <p style="margin: 0 0 20px 0;"><b>Исполнитель:</b></p>
+                        <div style="border-bottom: 1px solid #000; width: 100%; margin-bottom: 5px;"></div>
+                        <p style="margin: 0; font-size: 12px; text-align: center; color: #555;">(подпись)</p>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    window.downloadPDF = async () => {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF('p', 'mm', 'a4');
+
+        const tempDiv = document.createElement('div');
+        tempDiv.style.position = 'absolute';
+        tempDiv.style.left = '-9999px';
+        tempDiv.innerHTML = createPdfHtml();
         document.body.appendChild(tempDiv);
-        const canvas = await html2canvas(tempDiv, { scale: 2 });
-        const imgData = canvas.toDataURL('image/jpeg');
+
+        const canvas = await html2canvas(tempDiv, { scale: 3, backgroundColor: '#ffffff' });
+        document.body.removeChild(tempDiv);
+
+        const imgData = canvas.toDataURL('image/jpeg', 1.0);
         const pdfWidth = doc.internal.pageSize.getWidth();
         const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
 
@@ -719,54 +1221,28 @@
         if (window.AndroidApp) {
             window.AndroidApp.savePdf(pdfBase64);
         } else {
-            doc.save('Смета.pdf');
+            doc.save(`Смета_${new Date().getTime()}.pdf`);
         }
-        document.body.removeChild(tempDiv);
     };
 
     window.shareEstimate = async () => {
         const { jsPDF } = window.jspdf;
-        const doc = new jsPDF();
+        const doc = new jsPDF('p', 'mm', 'a4');
+
         const tempDiv = document.createElement('div');
-        tempDiv.style.width = '800px';
-        tempDiv.style.padding = '40px';
-        tempDiv.style.backgroundColor = '#fff';
-        tempDiv.style.color = '#000';
-
-        let rowsHtml = '';
-        let total = 0;
-        currentEstimate.forEach(item => {
-            total += item.total;
-            rowsHtml += `<tr>
-                <td style="border: 1px solid #ccc; padding: 8px;">${item.name}</td>
-                <td style="border: 1px solid #ccc; padding: 8px;">${item.qty} ${item.unit}</td>
-                <td style="border: 1px solid #ccc; padding: 8px;">${item.price} ₽</td>
-                <td style="border: 1px solid #ccc; padding: 8px; font-weight: bold;">${item.total.toLocaleString('ru-RU')} ₽</td>
-            </tr>`;
-        });
-
-        tempDiv.innerHTML = `
-            <h1 style="text-align: center;">Смета на работы</h1>
-            <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
-                <thead><tr style="background: #eee;">
-                    <th style="border: 1px solid #ccc; padding: 8px;">Наименование</th>
-                    <th style="border: 1px solid #ccc; padding: 8px;">Кол-во</th>
-                    <th style="border: 1px solid #ccc; padding: 8px;">Цена</th>
-                    <th style="border: 1px solid #ccc; padding: 8px;">Сумма</th>
-                </tr></thead>
-                <tbody>${rowsHtml}</tbody>
-            </table>
-            <h2 style="text-align: right; color: #00a000;">Итого: ${total.toLocaleString('ru-RU')} ₽</h2>
-        `;
-
+        tempDiv.style.position = 'absolute';
+        tempDiv.style.left = '-9999px';
+        tempDiv.innerHTML = createPdfHtml();
         document.body.appendChild(tempDiv);
-        const canvas = await html2canvas(tempDiv, { scale: 2 });
-        const imgData = canvas.toDataURL('image/jpeg');
+
+        const canvas = await html2canvas(tempDiv, { scale: 3, backgroundColor: '#ffffff' });
+        document.body.removeChild(tempDiv);
+
+        const imgData = canvas.toDataURL('image/jpeg', 1.0);
         const pdfWidth = doc.internal.pageSize.getWidth();
         const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
 
         doc.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
-        document.body.removeChild(tempDiv);
 
         const pdfBase64 = doc.output('datauristring');
         if (window.AndroidApp) {
@@ -776,6 +1252,8 @@
         }
     };
 
+    // Инициализация
+    updateLogoPreview();
     renderEstimate();
     renderFinance();
 </script>
