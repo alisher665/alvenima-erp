@@ -1,54 +1,352 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Vosk Test</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Сметчик - Автономный</title>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #0f0f0f; color: white; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .container { width: 100%; max-width: 500px; background: #1a1a1a; padding: 20px; border-radius: 15px; border: 1px solid #333; margin-bottom: 20px; }
+        h2 { text-align: center; color: #00c2ff; margin-top: 0; }
+
+        .mic-btn { width: 100%; padding: 20px; font-size: 18px; font-weight: bold; color: white; background: #00c2ff; border: none; border-radius: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: background 0.3s; }
+        .mic-btn.recording { background: #ff4444; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+        .divider { text-align: center; margin: 20px 0; color: #666; font-size: 14px; position: relative; }
+        .divider::before, .divider::after { content: ''; position: absolute; top: 50%; width: 30%; height: 1px; background: #333; }
+        .divider::before { left: 0; } .divider::after { right: 0; }
+
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-size: 14px; color: #888; margin-bottom: 5px; }
+        input, select { width: 100%; padding: 12px; font-size: 16px; background: #222; color: white; border: 1px solid #444; border-radius: 8px; box-sizing: border-box; }
+        input:focus, select:focus { border-color: #00c2ff; outline: none; }
+
+        .btn-add { width: 100%; padding: 15px; font-size: 16px; font-weight: bold; color: white; background: #28a745; border: none; border-radius: 8px; cursor: pointer; margin-top: 10px; }
+
+        #status { text-align: center; margin-top: 10px; font-size: 14px; color: yellow; min-height: 20px; white-space: pre-wrap; }
+
+        .list-container { width: 100%; max-width: 500px; background: #1a1a1a; padding: 20px; border-radius: 15px; border: 1px solid #333; margin-bottom: 20px; }
+        .list-header { color: #00c2ff; margin-top: 0; margin-bottom: 15px; border-bottom: 1px solid #444; padding-bottom: 10px; }
+        .estimate-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #333; font-size: 14px; }
+        .estimate-item:last-child { border-bottom: none; }
+        .item-info { flex: 1; }
+        .item-name { font-weight: bold; }
+        .item-details { color: #888; font-size: 12px; margin-top: 4px; }
+        .item-total { color: #00ff88; font-weight: bold; margin-left: 10px; }
+        .delete-item-btn { background: none; border: none; color: #ff4444; cursor: pointer; font-size: 18px; margin-left: 10px; }
+        .total-row { display: flex; justify-content: space-between; margin-top: 20px; padding-top: 15px; border-top: 2px solid #444; font-size: 18px; font-weight: bold; color: #00ff88; }
+
+        .export-buttons { display: flex; gap: 10px; margin-top: 20px; }
+        .btn-export { flex: 1; padding: 15px; font-size: 14px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; color: white; text-align: center; }
+        .btn-pdf { background-color: #d9534f; }
+        .btn-share { background-color: #00c2ff; }
+    </style>
 </head>
-<body style="background:#000;color:#fff;text-align:center;padding-top:50px;font-family:sans-serif;">
-<h2>Тест Vosk</h2>
-<button id="btn" disabled style="padding:20px;font-size:20px;background:gray;color:#fff;border:none;border-radius:10px;">
-    ЖДИТЕ ЗАГРУЗКИ...
-</button>
-<p id="status" style="font-size:18px;color:yellow;">Ожидание...</p>
+<body>
+
+<div class="container" id="form-container">
+    <h2>Добавить работу</h2>
+
+    <button id="mic-btn" class="mic-btn">
+        <span style="font-size: 24px;">🎤</span> Нажмите и говорите
+    </button>
+    <div id="status">Загрузка модели...</div>
+
+    <div class="divider">ИЛИ ВВЕДИТЕ ВРУЧНУЮ</div>
+
+    <div class="form-group">
+        <label>Название работы</label>
+        <input type="text" id="work-name" placeholder="Например: Штукатурка стен" autocomplete="off">
+    </div>
+
+    <div style="display: flex; gap: 10px;">
+        <div class="form-group" style="flex: 2;">
+            <label>Кол-во</label>
+            <input type="number" id="work-qty" placeholder="0" step="0.1">
+        </div>
+        <div class="form-group" style="flex: 1;">
+            <label>Ед. изм.</label>
+            <select id="work-unit">
+                <option value="м²">м²</option>
+                <option value="м.п.">м.п.</option>
+                <option value="шт.">шт.</option>
+                <option value="компл.">компл.</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>Цена за единицу (₽)</label>
+        <input type="number" id="work-price" placeholder="0">
+    </div>
+
+    <button id="add-btn" class="btn-add">Добавить в смету</button>
+</div>
+
+<div class="list-container" id="estimate-container">
+    <h3 class="list-header" id="list-header-title">Текущая смета</h3>
+    <div id="estimate-list">
+        <p style="color: #666; font-size: 14px; text-align: center;">Смета пока пуста</p>
+    </div>
+    <div class="total-row" id="total-row" style="display: none;">
+        <span>Итого:</span>
+        <span id="total-sum">0 ₽</span>
+    </div>
+
+    <div class="export-buttons" id="export-buttons" style="display: none;">
+        <button class="btn-export btn-pdf" onclick="downloadPDF()">📄 Скачать PDF</button>
+        <button class="btn-export btn-share" onclick="shareEstimate()">📤 Отправить</button>
+    </div>
+</div>
 
 <script>
-    var btn = document.getElementById('btn');
-    var status = document.getElementById('status');
-    var isReady = false;
+    let currentEstimate = JSON.parse(localStorage.getItem('my_estimate')) || [];
 
-    window.onModelLoaded = function() {
-        isReady = true;
-        btn.disabled = false;
-        btn.style.background = 'blue';
-        btn.innerText = 'НАЖМИ МЕНЯ';
-        status.innerText = 'Модель готова!';
+    const micBtn = document.getElementById('mic-btn');
+    const statusDiv = document.getElementById('status');
+
+    window.onModelLoaded = () => {
+        statusDiv.innerText = 'Модель готова! Нажмите микрофон.';
+        statusDiv.style.color = 'lightgreen';
     };
 
-    btn.onclick = function() {
-        if (!isReady) return;
-
-        if (btn.innerText === 'НАЖМИ МЕНЯ') {
-            status.innerText = 'Слушаю...';
-            btn.innerText = 'ОСТАНОВИТЬ';
-            btn.style.background = 'red';
-            if (window.AndroidApp) window.AndroidApp.startVosk();
-        } else {
-            status.innerText = 'Обработка...';
-            btn.innerText = 'НАЖМИ МЕНЯ';
-            btn.style.background = 'blue';
-            if (window.AndroidApp) window.AndroidApp.stopVosk();
-        }
-    };
-
-    window.onVoskResult = function(text) {
+    window.onVoskResult = (text) => {
         if (text && text.trim() !== "") {
-            status.style.color = 'lightgreen';
-            status.innerText = 'Вы сказали: ' + text;
-            document.getElementById('work-name').value = text;
+            statusDiv.style.color = 'lightgreen';
+            statusDiv.innerText = 'Вы сказали: ' + text;
         } else {
-            status.innerText = 'Ничего не распознано.';
+            statusDiv.innerText = 'Ничего не распознано.';
         }
     };
+
+    window.onVoiceParsed = (name, qty, unit) => {
+        if (name) {
+            document.getElementById('work-name').value = name;
+
+            let savedPrices = JSON.parse(localStorage.getItem('my_prices')) || {};
+            const nameKey = name.trim().toLowerCase();
+
+            if (savedPrices[nameKey]) {
+                document.getElementById('work-price').value = savedPrices[nameKey];
+                statusDiv.innerText = 'Цена подставлена из справочника!';
+            } else {
+                statusDiv.innerText = 'Новая работа. Введите цену.';
+                document.getElementById('work-price').focus();
+            }
+        }
+
+        if (qty) document.getElementById('work-qty').value = qty;
+
+        const unitSelect = document.getElementById('work-unit');
+        for (let i = 0; i < unitSelect.options.length; i++) {
+            if (unitSelect.options[i].value === unit) {
+                unitSelect.selectedIndex = i;
+                break;
+            }
+        }
+    };
+
+    let isRecording = false;
+    micBtn.addEventListener('click', () => {
+        if (!isRecording) {
+            if (window.AndroidApp) window.AndroidApp.startVosk();
+            isRecording = true;
+            micBtn.classList.add('recording');
+            micBtn.innerHTML = '<span style="font-size: 24px;">🛑</span> Идет запись... Нажмите, чтобы остановить';
+            statusDiv.innerText = 'Говорите...';
+        } else {
+            if (window.AndroidApp) window.AndroidApp.stopVosk();
+            isRecording = false;
+            micBtn.classList.remove('recording');
+            micBtn.innerHTML = '<span style="font-size: 24px;">🎤</span> Нажмите и говорите';
+            statusDiv.innerText = 'Обработка...';
+        }
+    });
+
+    function renderEstimate() {
+        const listDiv = document.getElementById('estimate-list');
+        const totalRow = document.getElementById('total-row');
+        const totalSumSpan = document.getElementById('total-sum');
+        const exportButtons = document.getElementById('export-buttons');
+
+        if (currentEstimate.length === 0) {
+            listDiv.innerHTML = '<p style="color: #666; font-size: 14px; text-align: center;">Смета пока пуста</p>';
+            totalRow.style.display = 'none';
+            exportButtons.style.display = 'none';
+            return;
+        }
+
+        listDiv.innerHTML = '';
+        let grandTotal = 0;
+
+        currentEstimate.forEach((item, index) => {
+            grandTotal += item.total;
+            const div = document.createElement('div');
+            div.className = 'estimate-item';
+            div.innerHTML = `
+                <div class="item-info">
+                    <div class="item-name">${item.name}</div>
+                    <div class="item-details">${item.qty} ${item.unit} × ${item.price} ₽</div>
+                </div>
+                <div style="display:flex; align-items:center;">
+                    <div class="item-total">${item.total.toLocaleString('ru-RU')} ₽</div>
+                    <button class="delete-item-btn" onclick="deleteItem(${index})">✕</button>
+                </div>
+            `;
+            listDiv.appendChild(div);
+        });
+
+        totalRow.style.display = 'flex';
+        totalSumSpan.innerText = grandTotal.toLocaleString('ru-RU') + ' ₽';
+        exportButtons.style.display = 'flex';
+    }
+
+    document.getElementById('add-btn').addEventListener('click', () => {
+        const name = document.getElementById('work-name').value;
+        const qty = parseFloat(document.getElementById('work-qty').value);
+        const unit = document.getElementById('work-unit').value;
+        const price = parseFloat(document.getElementById('work-price').value);
+
+        if (!name || isNaN(qty) || isNaN(price)) {
+            alert('Заполните все поля правильно!');
+            return;
+        }
+
+        // СОХРАНЯЕМ ЦЕНУ В СПРАВОЧНИК
+        let savedPrices = JSON.parse(localStorage.getItem('my_prices')) || {};
+        const nameKey = name.trim().toLowerCase();
+        savedPrices[nameKey] = price;
+        localStorage.setItem('my_prices', JSON.stringify(savedPrices));
+
+        const total = qty * price;
+        currentEstimate.push({ name, qty, unit, price, total });
+        localStorage.setItem('my_estimate', JSON.stringify(currentEstimate));
+
+        document.getElementById('work-name').value = '';
+        document.getElementById('work-qty').value = '';
+        document.getElementById('work-price').value = '';
+
+        renderEstimate();
+    });
+
+    window.deleteItem = (index) => {
+        currentEstimate.splice(index, 1);
+        localStorage.setItem('my_estimate', JSON.stringify(currentEstimate));
+        renderEstimate();
+    };
+
+    window.downloadPDF = async () => {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        const tempDiv = document.createElement('div');
+        tempDiv.style.width = '800px';
+        tempDiv.style.padding = '40px';
+        tempDiv.style.backgroundColor = '#fff';
+        tempDiv.style.color = '#000';
+
+        let rowsHtml = '';
+        let total = 0;
+        currentEstimate.forEach(item => {
+            total += item.total;
+            rowsHtml += `<tr>
+                <td style="border: 1px solid #ccc; padding: 8px;">${item.name}</td>
+                <td style="border: 1px solid #ccc; padding: 8px;">${item.qty} ${item.unit}</td>
+                <td style="border: 1px solid #ccc; padding: 8px;">${item.price} ₽</td>
+                <td style="border: 1px solid #ccc; padding: 8px; font-weight: bold;">${item.total.toLocaleString('ru-RU')} ₽</td>
+            </tr>`;
+        });
+
+        tempDiv.innerHTML = `
+            <h1 style="text-align: center; margin-bottom: 5px;">Смета на работы</h1>
+            <p style="text-align: center; color: #666; margin-bottom: 20px;">Сформировано в приложении Сметчик</p>
+            <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                <thead><tr style="background: #eee;">
+                    <th style="border: 1px solid #ccc; padding: 8px;">Наименование</th>
+                    <th style="border: 1px solid #ccc; padding: 8px;">Кол-во</th>
+                    <th style="border: 1px solid #ccc; padding: 8px;">Цена</th>
+                    <th style="border: 1px solid #ccc; padding: 8px;">Сумма</th>
+                </tr></thead>
+                <tbody>${rowsHtml}</tbody>
+            </table>
+            <h2 style="text-align: right; margin-top: 20px; color: #00a000;">Итого: ${total.toLocaleString('ru-RU')} ₽</h2>
+        `;
+
+        document.body.appendChild(tempDiv);
+        const canvas = await html2canvas(tempDiv, { scale: 2 });
+        const imgData = canvas.toDataURL('image/jpeg');
+        const pdfWidth = doc.internal.pageSize.getWidth();
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+
+        doc.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+
+        const pdfBase64 = doc.output('datauristring');
+        if (window.AndroidApp) {
+            window.AndroidApp.savePdf(pdfBase64);
+        } else {
+            doc.save('Смета.pdf');
+        }
+        document.body.removeChild(tempDiv);
+    };
+
+    window.shareEstimate = async () => {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        const tempDiv = document.createElement('div');
+        tempDiv.style.width = '800px';
+        tempDiv.style.padding = '40px';
+        tempDiv.style.backgroundColor = '#fff';
+        tempDiv.style.color = '#000';
+
+        let rowsHtml = '';
+        let total = 0;
+        currentEstimate.forEach(item => {
+            total += item.total;
+            rowsHtml += `<tr>
+                <td style="border: 1px solid #ccc; padding: 8px;">${item.name}</td>
+                <td style="border: 1px solid #ccc; padding: 8px;">${item.qty} ${item.unit}</td>
+                <td style="border: 1px solid #ccc; padding: 8px;">${item.price} ₽</td>
+                <td style="border: 1px solid #ccc; padding: 8px; font-weight: bold;">${item.total.toLocaleString('ru-RU')} ₽</td>
+            </tr>`;
+        });
+
+        tempDiv.innerHTML = `
+            <h1 style="text-align: center;">Смета на работы</h1>
+            <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                <thead><tr style="background: #eee;">
+                    <th style="border: 1px solid #ccc; padding: 8px;">Наименование</th>
+                    <th style="border: 1px solid #ccc; padding: 8px;">Кол-во</th>
+                    <th style="border: 1px solid #ccc; padding: 8px;">Цена</th>
+                    <th style="border: 1px solid #ccc; padding: 8px;">Сумма</th>
+                </tr></thead>
+                <tbody>${rowsHtml}</tbody>
+            </table>
+            <h2 style="text-align: right; color: #00a000;">Итого: ${total.toLocaleString('ru-RU')} ₽</h2>
+        `;
+
+        document.body.appendChild(tempDiv);
+        const canvas = await html2canvas(tempDiv, { scale: 2 });
+        const imgData = canvas.toDataURL('image/jpeg');
+        const pdfWidth = doc.internal.pageSize.getWidth();
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+
+        doc.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+        document.body.removeChild(tempDiv);
+
+        const pdfBase64 = doc.output('datauristring');
+        if (window.AndroidApp) {
+            window.AndroidApp.sharePdf(pdfBase64);
+        } else {
+            alert("Отправка файлов доступна только в приложении.");
+        }
+    };
+
+    renderEstimate();
 </script>
+
 </body>
 </html>

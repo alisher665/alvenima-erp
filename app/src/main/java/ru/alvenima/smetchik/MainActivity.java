@@ -13,11 +13,12 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.util.Base64;
-import android.widget.Button;
-import android.widget.EditText;
-import android.widget.LinearLayout;
-import android.widget.ScrollView;
-import android.widget.TextView;
+import android.webkit.JavascriptInterface;
+import android.webkit.PermissionRequest;
+import android.webkit.WebChromeClient;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -32,14 +33,26 @@ import org.vosk.android.StorageService;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class MainActivity extends AppCompatActivity {
 
     private static final int REQUEST_AUDIO_PERMISSION = 101;
+    private WebView webView;
+    private ServerSocket serverSocket;
+    private ExecutorService serverExecutor;
+
     private Model model;
     private Recognizer recognizer;
     private AudioRecord audioRecord;
@@ -47,264 +60,332 @@ public class MainActivity extends AppCompatActivity {
     private boolean isRecording = false;
     private String lastRecognizedText = "";
 
-    private TextView statusText;
-    private Button micButton;
-    private EditText workNameInput, workQtyInput, workPriceInput;
-    private TextView estimateList;
-    private List<String> estimateItems = new ArrayList<>();
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        ScrollView scrollView = new ScrollView(this);
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(50, 50, 50, 50);
-        scrollView.addView(layout);
-
-        statusText = new TextView(this);
-        statusText.setText("Загрузка модели Vosk...");
-        statusText.setTextSize(18);
-        layout.addView(statusText);
-
-        micButton = new Button(this);
-        micButton.setText("🎤 НАЖМИ И ГОВОРИ");
-        micButton.setEnabled(false);
-        micButton.setOnClickListener(v -> {
-            if (!isRecording) {
-                startVosk();
-                micButton.setText("🛑 ОСТАНОВИТЬ");
-                statusText.setText("Слушаю...");
-            } else {
-                stopVosk();
-                micButton.setText("🎤 НАЖМИ И ГОВОРИ");
-                statusText.setText("Обработка...");
-            }
-        });
-        layout.addView(micButton);
-
-        layout.addView(new TextView(this)); // отступ
-
-        TextView labelName = new TextView(this);
-        labelName.setText("Название работы:");
-        layout.addView(labelName);
-
-        workNameInput = new EditText(this);
-        workNameInput.setHint("Например: Штукатурка стен");
-        layout.addView(workNameInput);
-
-        TextView labelQty = new TextView(this);
-        labelQty.setText("Количество:");
-        layout.addView(labelQty);
-
-        workQtyInput = new EditText(this);
-        workQtyInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        workQtyInput.setHint("0");
-        layout.addView(workQtyInput);
-
-        TextView labelPrice = new TextView(this);
-        labelPrice.setText("Цена за единицу (₽):");
-        layout.addView(labelPrice);
-
-        workPriceInput = new EditText(this);
-        workPriceInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        workPriceInput.setHint("0");
-        layout.addView(workPriceInput);
-
-        Button addButton = new Button(this);
-        addButton.setText("➕ ДОБАВИТЬ В СМЕТУ");
-        addButton.setOnClickListener(v -> addToEstimate());
-        layout.addView(addButton);
-
-        layout.addView(new TextView(this)); // отступ
-
-        TextView listTitle = new TextView(this);
-        listTitle.setText("ТЕКУЩАЯ СМЕТА:");
-        listTitle.setTextSize(18);
-        layout.addView(listTitle);
-
-        estimateList = new TextView(this);
-        estimateList.setText("Смета пока пуста");
-        layout.addView(estimateList);
-
-        Button pdfButton = new Button(this);
-        pdfButton.setText("📄 СКАЧАТЬ PDF");
-        pdfButton.setOnClickListener(v -> generatePdf());
-        layout.addView(pdfButton);
-
-        setContentView(scrollView);
-
+        // 1. Инициализация Vosk
         StorageService.unpack(this, "vosk-model-small-ru-0.22", "model",
                 (model) -> {
                     this.model = model;
-                    runOnUiThread(() -> {
-                        statusText.setText("Модель готова! Нажмите микрофон.");
-                        micButton.setEnabled(true);
-                    });
+                    runOnUiThread(() -> Toast.makeText(this, "Модель Vosk готова!", Toast.LENGTH_SHORT).show());
+                    runOnUiThread(() -> webView.evaluateJavascript("onModelLoaded()", null));
                 },
                 (exception) -> {
-                    runOnUiThread(() -> statusText.setText("Ошибка загрузки модели: " + exception.getMessage()));
+                    runOnUiThread(() -> Toast.makeText(this, "Ошибка загрузки модели: " + exception.getMessage(), Toast.LENGTH_LONG).show());
                 });
+
+        webView = new WebView(this);
+        WebSettings webSettings = webView.getSettings();
+        webSettings.setJavaScriptEnabled(true);
+        webSettings.setDomStorageEnabled(true);
+        webSettings.setAllowFileAccess(true);
+
+        webView.addJavascriptInterface(new WebAppInterface(), "AndroidApp");
+
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(final PermissionRequest request) {
+                runOnUiThread(() -> {
+                    if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO)
+                            == PackageManager.PERMISSION_GRANTED) {
+                        request.grant(request.getResources());
+                    } else {
+                        ActivityCompat.requestPermissions(MainActivity.this,
+                                new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_AUDIO_PERMISSION);
+                        request.deny();
+                    }
+                });
+            }
+        });
+
+        webView.setWebViewClient(new WebViewClient());
+        setContentView(webView);
+
+        startLocalServer();
     }
 
-    private void startVosk() {
-        if (model == null || isRecording) return;
+    // ==========================================
+    // МОСТ МЕЖДУ JAVASCRIPT И JAVA
+    // ==========================================
+    public class WebAppInterface {
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_AUDIO_PERMISSION);
-            return;
-        }
+        @JavascriptInterface
+        public void startVosk() {
+            if (model == null) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Подождите, модель грузится...", Toast.LENGTH_SHORT).show());
+                return;
+            }
+            if (isRecording) return;
 
-        try {
-            recognizer = new Recognizer(model, 16000.0f);
-            lastRecognizedText = "";
+            if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.RECORD_AUDIO}, REQUEST_AUDIO_PERMISSION);
+                return;
+            }
 
-            int bufferSize = AudioRecord.getMinBufferSize(16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT) * 2;
-            audioRecord = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, 16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize);
+            try {
+                recognizer = new Recognizer(model, 16000.0f);
+                lastRecognizedText = "";
 
-            if (audioRecord.getState() != AudioRecord.STATE_INITIALIZED) return;
+                int bufferSize = AudioRecord.getMinBufferSize(16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT) * 2;
+                audioRecord = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, 16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize);
 
-            audioRecord.startRecording();
-            isRecording = true;
+                if (audioRecord.getState() != AudioRecord.STATE_INITIALIZED) return;
 
-            recordingThread = new Thread(() -> {
-                byte[] buffer = new byte[bufferSize];
-                while (isRecording) {
-                    int bytesRead = audioRecord.read(buffer, 0, buffer.length);
-                    if (bytesRead > 0) {
-                        if (recognizer.acceptWaveForm(buffer, bytesRead)) {
-                            String result = recognizer.getResult();
-                            String cleanText = result.replaceAll(".*\"text\"\\s*:\\s*\"([^\"]*)\".*", "$1").replace("{", "").replace("}", "").trim();
-                            if (!cleanText.isEmpty()) {
-                                lastRecognizedText = cleanText;
-                                runOnUiThread(() -> {
-                                    statusText.setText("Вы сказали: " + cleanText);
-                                    workNameInput.setText(cleanText); // Вставляем в поле названия
-                                });
+                audioRecord.startRecording();
+                isRecording = true;
+
+                recordingThread = new Thread(() -> {
+                    byte[] buffer = new byte[bufferSize];
+                    while (isRecording) {
+                        int bytesRead = audioRecord.read(buffer, 0, buffer.length);
+                        if (bytesRead > 0) {
+                            if (recognizer.acceptWaveForm(buffer, bytesRead)) {
+                                String result = recognizer.getResult();
+                                String cleanText = result.replaceAll(".*\"text\"\\s*:\\s*\"([^\"]*)\".*", "$1").replace("{", "").replace("}", "").trim();
+                                if (!cleanText.isEmpty()) {
+                                    lastRecognizedText = cleanText;
+                                    parseAndFill(cleanText);
+                                }
+                                runOnUiThread(() -> webView.evaluateJavascript("onVoskResult('" + cleanText + "')", null));
                             }
                         }
                     }
-                }
-            });
-            recordingThread.start();
-
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void stopVosk() {
-        if (!isRecording) return;
-        isRecording = false;
-
-        try {
-            if (recordingThread != null) recordingThread.join();
-            if (audioRecord != null) {
-                audioRecord.stop();
-                audioRecord.release();
-                audioRecord = null;
-            }
-            if (recognizer != null) {
-                String finalResult = recognizer.getFinalResult();
-                String cleanText = finalResult.replaceAll(".*\"text\"\\s*:\\s*\"([^\"]*)\".*", "$1").replace("{", "").replace("}", "").trim();
-                if (!cleanText.isEmpty()) {
-                    lastRecognizedText = cleanText;
-                }
-                String toShow = lastRecognizedText.isEmpty() ? "Ничего не распознано" : lastRecognizedText;
-                runOnUiThread(() -> {
-                    statusText.setText("Вы сказали: " + toShow);
-                    if (!lastRecognizedText.isEmpty()) {
-                        workNameInput.setText(lastRecognizedText);
-                    }
                 });
-                recognizer.close();
-                recognizer = null;
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
+                recordingThread.start();
 
-    private void addToEstimate() {
-        String name = workNameInput.getText().toString();
-        String qtyStr = workQtyInput.getText().toString();
-        String priceStr = workPriceInput.getText().toString();
-
-        if (name.isEmpty() || qtyStr.isEmpty() || priceStr.isEmpty()) {
-            Toast.makeText(this, "Заполните все поля!", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        double qty = Double.parseDouble(qtyStr);
-        double price = Double.parseDouble(priceStr);
-        double total = qty * price;
-
-        String item = String.format(Locale.getDefault(), "%s — %.1f × %.0f = %.0f ₽", name, qty, price, total);
-        estimateItems.add(item);
-
-        StringBuilder sb = new StringBuilder();
-        double grandTotal = 0;
-        for (String s : estimateItems) {
-            sb.append(s).append("\n");
-            // Парсим сумму из строки
-            String[] parts = s.split("= ");
-            if (parts.length > 1) {
-                String sumStr = parts[1].replace(" ₽", "");
-                grandTotal += Double.parseDouble(sumStr);
+            } catch (Exception e) {
+                e.printStackTrace();
             }
         }
-        sb.append("\nИТОГО: ").append(String.format(Locale.getDefault(), "%.0f ₽", grandTotal));
-        estimateList.setText(sb.toString());
 
-        workNameInput.setText("");
-        workQtyInput.setText("");
-        workPriceInput.setText("");
-    }
+        @JavascriptInterface
+        public void stopVosk() {
+            if (!isRecording) return;
+            isRecording = false;
 
-    private void generatePdf() {
-        if (estimateItems.isEmpty()) {
-            Toast.makeText(this, "Смета пуста!", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("СМЕТА НА РАБОТЫ\n\n");
-        double grandTotal = 0;
-        for (String s : estimateItems) {
-            sb.append(s).append("\n");
-            String[] parts = s.split("= ");
-            if (parts.length > 1) {
-                String sumStr = parts[1].replace(" ₽", "");
-                grandTotal += Double.parseDouble(sumStr);
+            try {
+                if (recordingThread != null) recordingThread.join();
+                if (audioRecord != null) {
+                    audioRecord.stop();
+                    audioRecord.release();
+                    audioRecord = null;
+                }
+                if (recognizer != null) {
+                    String finalResult = recognizer.getFinalResult();
+                    String cleanText = finalResult.replaceAll(".*\"text\"\\s*:\\s*\"([^\"]*)\".*", "$1").replace("{", "").replace("}", "").trim();
+                    if (!cleanText.isEmpty()) {
+                        lastRecognizedText = cleanText;
+                        parseAndFill(cleanText);
+                    }
+                    String toSend = lastRecognizedText.isEmpty() ? "" : lastRecognizedText;
+                    runOnUiThread(() -> webView.evaluateJavascript("onVoskResult('" + toSend + "')", null));
+                    lastRecognizedText = "";
+                    recognizer.close();
+                    recognizer = null;
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
             }
         }
-        sb.append("\nИТОГО: ").append(String.format(Locale.getDefault(), "%.0f ₽", grandTotal));
 
-        // Сохраняем как текстовый файл (для теста)
-        String fileName = "Смета_" + System.currentTimeMillis() + ".txt";
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                ContentValues values = new ContentValues();
-                values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
-                values.put(MediaStore.MediaColumns.MIME_TYPE, "text/plain");
-                values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
-                Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
-                if (uri != null) {
-                    try (OutputStream os = getContentResolver().openOutputStream(uri)) {
-                        os.write(sb.toString().getBytes());
-                        Toast.makeText(this, "Файл сохранен в Загрузки!", Toast.LENGTH_LONG).show();
+        private void parseAndFill(String text) {
+            String lowerText = text.toLowerCase().replace(",", ".");
+
+            // Словарь чисел (можно расширить)
+            Map<String, Integer> numberWords = new HashMap<>();
+            numberWords.put("ноль", 0); numberWords.put("один", 1); numberWords.put("два", 2);
+            numberWords.put("три", 3); numberWords.put("четыре", 4); numberWords.put("пять", 5);
+            numberWords.put("шесть", 6); numberWords.put("семь", 7); numberWords.put("восемь", 8);
+            numberWords.put("девять", 9); numberWords.put("десять", 10);
+            numberWords.put("одиннадцать", 11); numberWords.put("двенадцать", 12);
+            numberWords.put("тринадцать", 13); numberWords.put("четырнадцать", 14);
+            numberWords.put("пятнадцать", 15); numberWords.put("шестнадцать", 16);
+            numberWords.put("семнадцать", 17); numberWords.put("восемнадцать", 18);
+            numberWords.put("девятнадцать", 19); numberWords.put("двадцать", 20);
+            numberWords.put("тридцать", 30); numberWords.put("сорок", 40);
+            numberWords.put("пятьдесят", 50); numberWords.put("шестьдесят", 60);
+            numberWords.put("семьдесят", 70); numberWords.put("восемьдесят", 80);
+            numberWords.put("девяносто", 90); numberWords.put("сто", 100);
+
+            String name = lowerText;
+            String qty = "";
+            String unit = "м²";
+
+            // Ищем цифры
+            Pattern pattern = Pattern.compile("(\\d+(\\.\\d+)?)");
+            Matcher matcher = pattern.matcher(lowerText);
+
+            if (matcher.find()) {
+                qty = matcher.group(1);
+                name = lowerText.substring(0, matcher.start()).trim();
+            } else {
+                // Если цифр нет, ищем числа словами
+                String[] words = lowerText.split("\\s+");
+                int foundNumber = -1;
+                int numberIndex = -1;
+
+                for (int i = 0; i < words.length; i++) {
+                    String word = words[i].replaceAll("[^а-я]", "");
+                    if (numberWords.containsKey(word)) {
+                        int val = numberWords.get(word);
+                        // Проверяем следующее слово (например, "тридцать" и "пять" = 35)
+                        if (i + 1 < words.length) {
+                            String nextWord = words[i + 1].replaceAll("[^а-я]", "");
+                            if (numberWords.containsKey(nextWord) && val >= 20 && numberWords.get(nextWord) < 10) {
+                                val += numberWords.get(nextWord);
+                                i++; // Пропускаем следующее слово
+                            }
+                        }
+                        foundNumber = val;
+                        numberIndex = i;
+                        break;
                     }
                 }
-            } else {
-                File file = new File(getExternalFilesDir(null), fileName);
-                try (FileOutputStream fos = new FileOutputStream(file)) {
-                    fos.write(sb.toString().getBytes());
-                    Toast.makeText(this, "Файл сохранен: " + file.getAbsolutePath(), Toast.LENGTH_LONG).show();
+
+                if (foundNumber != -1) {
+                    qty = String.valueOf(foundNumber);
+                    // Отрезаем все слова до и включая число
+                    name = lowerText.substring(0, lowerText.indexOf(words[numberIndex])).trim();
                 }
             }
+
+            name = name.replaceAll("(на|по|в|с|и|до)$", "").trim();
+
+            if (lowerText.contains("квадрат") || lowerText.contains("кв м") || lowerText.contains("квадратный метр")) {
+                unit = "м²";
+            } else if (lowerText.contains("метр") || lowerText.contains("погонн")) {
+                unit = "м.п.";
+            } else if (lowerText.contains("штук") || lowerText.contains("шт")) {
+                unit = "шт.";
+            } else if (lowerText.contains("комплект")) {
+                unit = "компл.";
+            }
+
+            final String finalName = name;
+            final String finalQty = qty;
+            final String finalUnit = unit;
+
+            runOnUiThread(() -> {
+                String js = String.format("onVoiceParsed('%s', '%s', '%s')", finalName, finalQty, finalUnit);
+                webView.evaluateJavascript(js, null);
+            });
+        }
+
+        @JavascriptInterface
+        public void savePdf(String base64Image) {
+            try {
+                String base64Data = base64Image.substring(base64Image.indexOf(",") + 1);
+                byte[] decodedBytes = Base64.decode(base64Data, Base64.DEFAULT);
+                String fileName = "Смета_" + System.currentTimeMillis() + ".pdf";
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ContentValues values = new ContentValues();
+                    values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
+                    values.put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf");
+                    values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                    Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                    if (uri != null) {
+                        try (OutputStream outputStream = getContentResolver().openOutputStream(uri)) {
+                            outputStream.write(decodedBytes);
+                            showToast("PDF сохранен в папку 'Загрузки'!");
+                        }
+                    }
+                } else {
+                    File file = new File(getExternalFilesDir(null), fileName);
+                    try (FileOutputStream fos = new FileOutputStream(file)) {
+                        fos.write(decodedBytes);
+                        showToast("PDF сохранен: " + file.getAbsolutePath());
+                    }
+                }
+            } catch (Exception e) {
+                showToast("Ошибка при сохранении PDF: " + e.getMessage());
+            }
+        }
+
+        @JavascriptInterface
+        public void sharePdf(String base64Image) {
+            try {
+                String base64Data = base64Image.substring(base64Image.indexOf(",") + 1);
+                byte[] decodedBytes = Base64.decode(base64Data, Base64.DEFAULT);
+
+                File cachePath = new File(getCacheDir(), "Смета.pdf");
+                try (FileOutputStream fos = new FileOutputStream(cachePath)) {
+                    fos.write(decodedBytes);
+                }
+
+                Uri contentUri = FileProvider.getUriForFile(MainActivity.this,
+                        getPackageName() + ".fileprovider", cachePath);
+
+                Intent shareIntent = new Intent(Intent.ACTION_SEND);
+                shareIntent.setType("application/pdf");
+                shareIntent.putExtra(Intent.EXTRA_STREAM, contentUri);
+                shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+                startActivity(Intent.createChooser(shareIntent, "Отправить смету"));
+            } catch (Exception e) {
+                showToast("Ошибка при отправке PDF: " + e.getMessage());
+            }
+        }
+    }
+
+    private void showToast(final String message) {
+        runOnUiThread(() -> Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show());
+    }
+
+    private void startLocalServer() {
+        serverExecutor = Executors.newSingleThreadExecutor();
+        serverExecutor.execute(() -> {
+            try {
+                serverSocket = new ServerSocket(8080, 0, InetAddress.getByName("127.0.0.1"));
+                runOnUiThread(() -> webView.loadUrl("http://127.0.0.1:8080/index.html"));
+                while (!serverSocket.isClosed()) {
+                    Socket socket = serverSocket.accept();
+                    handleRequest(socket);
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        });
+    }
+
+    private void handleRequest(Socket socket) {
+        try {
+            InputStream input = socket.getInputStream();
+            OutputStream output = socket.getOutputStream();
+            byte[] buffer = new byte[2048];
+            int bytesRead = input.read(buffer);
+            if (bytesRead == -1) return;
+            String request = new String(buffer, 0, bytesRead);
+
+            String filePath = "index.html";
+            if (request.startsWith("GET /")) {
+                String[] parts = request.split(" ");
+                if (parts.length > 1 && !parts[1].equals("/")) {
+                    filePath = parts[1].substring(1);
+                }
+            }
+
+            try {
+                InputStream fileStream = getAssets().open(filePath);
+                byte[] fileBytes = new byte[fileStream.available()];
+                fileStream.read(fileBytes);
+                fileStream.close();
+
+                String mimeType = "text/html";
+                if (filePath.endsWith(".js")) mimeType = "application/javascript";
+                if (filePath.endsWith(".css")) mimeType = "text/css";
+
+                String header = "HTTP/1.1 200 OK\r\nContent-Type: " + mimeType + "\r\nConnection: close\r\n\r\n";
+                output.write(header.getBytes());
+                output.write(fileBytes);
+            } catch (IOException e) {
+                output.write("HTTP/1.1 404 Not Found\r\n\r\n".getBytes());
+            }
+            output.flush();
+            socket.close();
         } catch (Exception e) {
-            Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            e.printStackTrace();
         }
     }
 
@@ -313,7 +394,7 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_AUDIO_PERMISSION) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                runOnUiThread(() -> statusText.setText("Микрофон разрешен! Нажмите кнопку еще раз."));
+                showToast("Микрофон разрешен! Нажмите кнопку записи еще раз.");
             }
         }
     }
@@ -321,11 +402,17 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        isRecording = false;
-        if (audioRecord != null) {
-            audioRecord.stop();
-            audioRecord.release();
+        try {
+            isRecording = false;
+            if (audioRecord != null) {
+                audioRecord.stop();
+                audioRecord.release();
+            }
+            if (recognizer != null) recognizer.close();
+            if (serverSocket != null) serverSocket.close();
+            if (serverExecutor != null) serverExecutor.shutdown();
+        } catch (Exception e) {
+            e.printStackTrace();
         }
-        if (recognizer != null) recognizer.close();
     }
 }
