@@ -3,18 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Сметчик - Автономный</title>
+    <title>Сметчик - ERP для прораба</title>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
     <style>
-        body { font-family: Arial, sans-serif; background-color: #0f0f0f; color: white; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        body { font-family: Arial, sans-serif; background-color: #0f0f0f; color: white; margin: 0; padding: 20px; padding-bottom: 100px; display: flex; flex-direction: column; align-items: center; }
         .container { width: 100%; max-width: 500px; background: #1a1a1a; padding: 20px; border-radius: 15px; border: 1px solid #333; margin-bottom: 20px; }
         h2 { text-align: center; color: #00c2ff; margin-top: 0; }
 
-        .mic-btn { width: 100%; padding: 20px; font-size: 18px; font-weight: bold; color: white; background: #00c2ff; border: none; border-radius: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: background 0.3s; }
-        .mic-btn.recording { background: #ff4444; animation: pulse 1.5s infinite; }
+        .tabs { display: flex; width: 100%; max-width: 500px; margin-bottom: 20px; background: #1a1a1a; border-radius: 15px; overflow: hidden; border: 1px solid #333; }
+        .tab-btn { flex: 1; padding: 15px; font-size: 16px; font-weight: bold; color: #888; background: none; border: none; cursor: pointer; transition: 0.3s; }
+        .tab-btn.active { color: white; background: #00c2ff; }
+
+        .mic-btn-inner {
+            width: 100%; padding: 20px; font-size: 18px; font-weight: bold; color: white;
+            background: #00c2ff; border: none; border-radius: 15px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; gap: 10px; transition: background 0.3s;
+            margin-bottom: 15px;
+        }
+        .mic-btn-inner.recording { background: #ff4444; animation: pulse 1.5s infinite; }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
 
         .divider { text-align: center; margin: 20px 0; color: #666; font-size: 14px; position: relative; }
@@ -28,10 +37,11 @@
 
         .btn-add { width: 100%; padding: 15px; font-size: 16px; font-weight: bold; color: white; background: #28a745; border: none; border-radius: 8px; cursor: pointer; margin-top: 10px; }
 
-        #status { text-align: center; margin-top: 10px; font-size: 14px; color: yellow; min-height: 20px; white-space: pre-wrap; }
+        #status { text-align: center; margin-top: 10px; font-size: 14px; color: yellow; min-height: 20px; white-space: pre-wrap; font-weight: bold;}
 
         .list-container { width: 100%; max-width: 500px; background: #1a1a1a; padding: 20px; border-radius: 15px; border: 1px solid #333; margin-bottom: 20px; }
         .list-header { color: #00c2ff; margin-top: 0; margin-bottom: 15px; border-bottom: 1px solid #444; padding-bottom: 10px; }
+
         .estimate-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #333; font-size: 14px; }
         .estimate-item:last-child { border-bottom: none; }
         .item-info { flex: 1; }
@@ -39,76 +49,185 @@
         .item-details { color: #888; font-size: 12px; margin-top: 4px; }
         .item-total { color: #00ff88; font-weight: bold; margin-left: 10px; }
         .delete-item-btn { background: none; border: none; color: #ff4444; cursor: pointer; font-size: 18px; margin-left: 10px; }
+
         .total-row { display: flex; justify-content: space-between; margin-top: 20px; padding-top: 15px; border-top: 2px solid #444; font-size: 18px; font-weight: bold; color: #00ff88; }
 
         .export-buttons { display: flex; gap: 10px; margin-top: 20px; }
         .btn-export { flex: 1; padding: 15px; font-size: 14px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; color: white; text-align: center; }
         .btn-pdf { background-color: #d9534f; }
         .btn-share { background-color: #00c2ff; }
+
+        .finance-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #333; }
+        .finance-item:last-child { border-bottom: none; }
+        .finance-info { flex: 1; }
+        .finance-name { font-weight: bold; font-size: 15px; }
+        .finance-type { font-size: 12px; margin-top: 4px; }
+        .type-income { color: #28a745; }
+        .type-expense { color: #ff4444; }
+        .finance-amount { font-weight: bold; font-size: 16px; margin-left: 10px; }
+        .finance-balance { display: flex; justify-content: space-between; margin-top: 20px; padding-top: 15px; border-top: 2px solid #444; font-size: 18px; font-weight: bold; }
+
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
 
-<div class="container" id="form-container">
-    <h2>Добавить работу</h2>
-
-    <button id="mic-btn" class="mic-btn">
-        <span style="font-size: 24px;">🎤</span> Нажмите и говорите
-    </button>
-    <div id="status">Загрузка модели...</div>
-
-    <div class="divider">ИЛИ ВВЕДИТЕ ВРУЧНУЮ</div>
-
-    <div class="form-group">
-        <label>Название работы</label>
-        <input type="text" id="work-name" placeholder="Например: Штукатурка стен" autocomplete="off">
-    </div>
-
-    <div style="display: flex; gap: 10px;">
-        <div class="form-group" style="flex: 2;">
-            <label>Кол-во</label>
-            <input type="number" id="work-qty" placeholder="0" step="0.1">
-        </div>
-        <div class="form-group" style="flex: 1;">
-            <label>Ед. изм.</label>
-            <select id="work-unit">
-                <option value="м²">м²</option>
-                <option value="м.п.">м.п.</option>
-                <option value="шт.">шт.</option>
-                <option value="компл.">компл.</option>
-            </select>
-        </div>
-    </div>
-
-    <div class="form-group">
-        <label>Цена за единицу (₽)</label>
-        <input type="number" id="work-price" placeholder="0">
-    </div>
-
-    <button id="add-btn" class="btn-add">Добавить в смету</button>
+<div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('smeta')" id="tab-btn-smeta">📋 Смета</button>
+    <button class="tab-btn" onclick="switchTab('dnevnik')" id="tab-btn-dnevnik">💰 Дневник</button>
 </div>
 
-<div class="list-container" id="estimate-container">
-    <h3 class="list-header" id="list-header-title">Текущая смета</h3>
-    <div id="estimate-list">
-        <p style="color: #666; font-size: 14px; text-align: center;">Смета пока пуста</p>
-    </div>
-    <div class="total-row" id="total-row" style="display: none;">
-        <span>Итого:</span>
-        <span id="total-sum">0 ₽</span>
+<div id="status" style="width: 100%; max-width: 500px; margin-bottom: 10px;">Загрузка модели...</div>
+
+<!-- ================= ВКЛАДКА 1: СМЕТА ================= -->
+<div id="view-smeta" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
+    <div class="container" id="form-container">
+        <h2>Добавить работу</h2>
+
+        <button id="mic-btn-smeta" class="mic-btn-inner" onclick="toggleMic('smeta')">
+            <span style="font-size: 24px;">🎤</span> Сказать работу
+        </button>
+
+        <div class="divider">ИЛИ ВВЕДИТЕ ВРУЧНУЮ</div>
+
+        <div class="form-group">
+            <label>Название работы</label>
+            <input type="text" id="work-name" placeholder="Например: Штукатурка стен" autocomplete="off">
+        </div>
+
+        <div style="display: flex; gap: 10px;">
+            <div class="form-group" style="flex: 2;">
+                <label>Кол-во</label>
+                <input type="number" id="work-qty" placeholder="0" step="0.1">
+            </div>
+            <div class="form-group" style="flex: 1;">
+                <label>Ед. изм.</label>
+                <select id="work-unit">
+                    <option value="м²">м²</option>
+                    <option value="м.п.">м.п.</option>
+                    <option value="шт.">шт.</option>
+                    <option value="компл.">компл.</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Цена за единицу (₽)</label>
+            <input type="number" id="work-price" placeholder="0">
+        </div>
+
+        <button id="add-btn" class="btn-add">Добавить в смету</button>
     </div>
 
-    <div class="export-buttons" id="export-buttons" style="display: none;">
-        <button class="btn-export btn-pdf" onclick="downloadPDF()">📄 Скачать PDF</button>
-        <button class="btn-export btn-share" onclick="shareEstimate()">📤 Отправить</button>
+    <div class="list-container">
+        <h3 class="list-header">Текущая смета</h3>
+        <div id="estimate-list">
+            <p style="color: #666; font-size: 14px; text-align: center;">Смета пока пуста</p>
+        </div>
+        <div class="total-row" id="total-row" style="display: none;">
+            <span>Итого:</span>
+            <span id="total-sum">0 ₽</span>
+        </div>
+
+        <div class="export-buttons" id="export-buttons" style="display: none;">
+            <button class="btn-export btn-pdf" onclick="downloadPDF()">📄 Скачать PDF</button>
+            <button class="btn-export btn-share" onclick="shareEstimate()">📤 Отправить</button>
+        </div>
+    </div>
+</div>
+
+<!-- ================= ВКЛАДКА 2: ДНЕВНИК ================= -->
+<div id="view-dnevnik" class="hidden" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
+    <div class="container">
+        <h2>Финансы</h2>
+
+        <button id="mic-btn-dnevnik" class="mic-btn-inner" onclick="toggleMic('dnevnik')">
+            <span style="font-size: 24px;">🎤</span> Записать финансы
+        </button>
+
+        <div class="divider">ИЛИ ВВЕДИТЕ ВРУЧНУЮ</div>
+        <div style="text-align: center; color: #888; font-size: 14px; margin-bottom: 20px;">
+            Пример: <i>"Заказчик выплатил три миллиона"</i><br>
+            <i>"Потратил пять тысяч на материалы"</i>
+        </div>
+
+        <div class="list-container" style="background: #111; padding: 15px;">
+            <div id="finance-list">
+                <p style="color: #666; font-size: 14px; text-align: center;">Записей пока нет</p>
+            </div>
+
+            <div class="finance-balance">
+                <span>Баланс:</span>
+                <span id="finance-balance-sum" style="color: #00c2ff;">0 ₽</span>
+            </div>
+
+            <button onclick="clearAllFinance()" style="width: 100%; margin-top: 15px; padding: 10px; background: #ff4444; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">
+                🗑 Очистить все записи
+            </button>
+        </div>
     </div>
 </div>
 
 <script>
-    let currentEstimate = JSON.parse(localStorage.getItem('my_estimate')) || [];
-
-    const micBtn = document.getElementById('mic-btn');
     const statusDiv = document.getElementById('status');
+    let isRecording = false;
+    let currentMicMode = '';
+
+    let awaitingConfirm = false;
+    let pendingDeleteAction = null;
+    let wasRecordingBeforeTts = false;
+
+    function speak(text) {
+        if (isRecording && window.AndroidApp && window.AndroidApp.stopVosk) {
+            wasRecordingBeforeTts = true;
+            window.AndroidApp.stopVosk();
+            isRecording = false;
+
+            const btn = document.getElementById('mic-btn-' + currentMicMode);
+            if (btn) {
+                btn.classList.remove('recording');
+                btn.innerHTML = '<span style="font-size: 24px;">🎤</span> ' + (currentMicMode === 'smeta' ? 'Сказать работу' : 'Записать финансы');
+            }
+        }
+        if (window.AndroidApp && window.AndroidApp.speak) {
+            window.AndroidApp.speak(text);
+        }
+    }
+
+    window.onTtsDone = function() {
+        if (wasRecordingBeforeTts && currentMicMode) {
+            wasRecordingBeforeTts = false;
+
+            if (window.AndroidApp && window.AndroidApp.startVosk) {
+                window.AndroidApp.startVosk();
+                isRecording = true;
+
+                const btn = document.getElementById('mic-btn-' + currentMicMode);
+                if (btn) {
+                    btn.classList.add('recording');
+                    btn.innerHTML = '<span style="font-size: 24px;">🛑</span> Идет запись...';
+                }
+                statusDiv.innerText = 'Слушаю...';
+                statusDiv.style.color = 'yellow';
+            }
+        } else {
+            wasRecordingBeforeTts = false;
+        }
+    };
+
+    window.switchTab = function(tabId) {
+        document.getElementById('view-smeta').classList.add('hidden');
+        document.getElementById('view-dnevnik').classList.add('hidden');
+        document.getElementById('tab-btn-smeta').classList.remove('active');
+        document.getElementById('tab-btn-dnevnik').classList.remove('active');
+
+        document.getElementById('view-' + tabId).classList.remove('hidden');
+        document.getElementById('tab-btn-' + tabId).classList.add('active');
+
+        statusDiv.innerText = tabId === 'smeta' ? "Вкладка: Смета" : "Вкладка: Дневник";
+        statusDiv.style.color = "yellow";
+        awaitingConfirm = false;
+    };
 
     window.onModelLoaded = () => {
         statusDiv.innerText = 'Модель готова! Нажмите микрофон.';
@@ -124,23 +243,198 @@
         }
     };
 
-    window.onVoiceParsed = (name, qty, unit) => {
-        if (name) {
-            document.getElementById('work-name').value = name;
+    window.toggleMic = (mode) => {
+        if (!isRecording) {
+            if (window.AndroidApp) window.AndroidApp.startVosk();
+            isRecording = true;
+            currentMicMode = mode;
+            const btn = document.getElementById('mic-btn-' + mode);
+            btn.classList.add('recording');
+            btn.innerHTML = '<span style="font-size: 24px;">🛑</span> Идет запись...';
+            statusDiv.innerText = 'Говорите...';
+            statusDiv.style.color = 'yellow';
+        } else {
+            if (window.AndroidApp) window.AndroidApp.stopVosk();
+            isRecording = false;
+            const btn = document.getElementById('mic-btn-' + currentMicMode);
+            btn.classList.remove('recording');
+            btn.innerHTML = '<span style="font-size: 24px;">🎤</span> ' + (currentMicMode === 'smeta' ? 'Сказать работу' : 'Записать финансы');
+            statusDiv.innerText = 'Обработка...';
+        }
+    };
 
-            let savedPrices = JSON.parse(localStorage.getItem('my_prices')) || {};
-            const nameKey = name.trim().toLowerCase();
+    const NUMBERS_MAP = {
+        "ноль": 0, "один": 1, "одна": 1, "два": 2, "две": 2, "три": 3, "четыре": 4, "пять": 5,
+        "шесть": 6, "семь": 7, "восемь": 8, "девять": 9, "десять": 10,
+        "одиннадцать": 11, "двенадцать": 12, "тринадцать": 13, "четырнадцать": 14,
+        "пятнадцать": 15, "шестнадцать": 16, "семнадцать": 17, "восемнадцать": 18, "девятнадцать": 19,
+        "двадцать": 20, "тридцать": 30, "сорок": 40, "пятьдесят": 50, "шестьдесят": 60,
+        "семьдесят": 70, "восемьдесят": 80, "девяносто": 90,
+        "сто": 100, "двести": 200, "триста": 300, "четыреста": 400, "пятьсот": 500,
+        "шестьсот": 600, "семьсот": 700, "восемьсот": 800, "девятьсот": 900,
+        "тысяча": 1000, "тысячи": 1000, "тысяч": 1000,
+        "миллион": 1000000, "миллиона": 1000000, "миллионов": 1000000
+    };
 
-            if (savedPrices[nameKey]) {
-                document.getElementById('work-price').value = savedPrices[nameKey];
-                statusDiv.innerText = 'Цена подставлена из справочника!';
-            } else {
-                statusDiv.innerText = 'Новая работа. Введите цену.';
-                document.getElementById('work-price').focus();
+    const UNITS_MAP = {
+        "квадрат": "м²", "квадратов": "м²", "квадрата": "м²", "кв": "м²", "м2": "м²",
+        "метр": "м.п.", "метров": "м.п.", "метра": "м.п.", "погонных": "м.п.",
+        "штука": "шт.", "штук": "шт.", "штуки": "шт.", "шт": "шт.",
+        "комплект": "компл.", "комплектов": "компл."
+    };
+
+    let voiceBuffer = "";
+    let voiceTimer = null;
+
+    window.handleVoiceInput = (text) => {
+        voiceBuffer += " " + text;
+        statusDiv.innerText = 'Слушаю: ' + voiceBuffer.trim();
+        statusDiv.style.color = 'lightgreen';
+
+        if (voiceTimer) clearTimeout(voiceTimer);
+
+        voiceTimer = setTimeout(() => {
+            let finalText = voiceBuffer.trim();
+            voiceBuffer = "";
+            processVoiceCommand(finalText);
+        }, 1200);
+    };
+
+    function processVoiceCommand(text) {
+        let lower = text.toLowerCase().replace(/,/g, '.');
+        let cleanText = lower.replace(/[^а-яё0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+
+        // --- 1. ПОДТВЕРЖДЕНИЕ УДАЛЕНИЯ ---
+        if (awaitingConfirm) {
+            let wordsArray = cleanText.split(' ');
+
+            let hasNo = wordsArray.includes('нет') || wordsArray.includes('не') || wordsArray.includes('отмена') || cleanText.includes('отмена') || cleanText.includes('не надо');
+            let hasYes = wordsArray.includes('да') || wordsArray.includes('подтверждаю') || wordsArray.includes('удаляй');
+
+            if (hasNo) {
+                statusDiv.innerText = "❌ Отменено.";
+                statusDiv.style.color = "yellow";
+                speak("Отменено");
+                awaitingConfirm = false;
+                pendingDeleteAction = null;
+                return;
             }
+
+            if (hasYes) {
+                if (pendingDeleteAction === 'smeta') {
+                    currentEstimate = [];
+                    localStorage.setItem('my_estimate', JSON.stringify(currentEstimate));
+                    renderEstimate();
+                } else if (pendingDeleteAction === 'dnevnik') {
+                    financeData = [];
+                    localStorage.setItem('my_finance', JSON.stringify(financeData));
+                    renderFinance();
+                }
+                statusDiv.innerText = "✅ Удалено!";
+                statusDiv.style.color = "lightgreen";
+                speak("Удалено");
+                awaitingConfirm = false;
+                pendingDeleteAction = null;
+                return;
+            }
+
+            // Если не Да и не Нет
+            awaitingConfirm = false;
+            pendingDeleteAction = null;
+            statusDiv.innerText = "Отменено.";
+            speak("Отменено");
         }
 
-        if (qty) document.getElementById('work-qty').value = qty;
+        // --- 2. КОМАНДА "ПЕРЕДЕЛАЙ" ---
+        if (cleanText.includes("передела") || cleanText.includes("заново") || cleanText.includes("сброс") || cleanText.includes("очисти поля")) {
+            clearFields();
+            return;
+        }
+
+        // --- 3. СТРОГАЯ КОМАНДА УДАЛЕНИЯ ---
+        let isDeleteSmeta = /удал(ить|и)?\s+смет[уа]/.test(cleanText);
+        let isDeleteDnevnik = /удал(ить|и)?\s+дневник[а]?/.test(cleanText);
+
+        if (isDeleteSmeta || isDeleteDnevnik) {
+            awaitingConfirm = true;
+            pendingDeleteAction = isDeleteSmeta ? 'smeta' : 'dnevnik';
+
+            // Короткий вопрос
+            let textToSay = "Хотите удалить?";
+
+            statusDiv.innerText = `⚠️ ${textToSay}`;
+            statusDiv.style.color = "#ff4444";
+            speak(textToSay);
+            return;
+        }
+
+        // --- 4. ПАРСИНГ РАБОТЫ ---
+        if (currentMicMode === 'smeta') {
+            parseSmetaVoice(lower);
+        } else if (currentMicMode === 'dnevnik') {
+            parseDnevnikVoice(lower);
+        }
+    }
+
+    function parseSmetaVoice(lower) {
+        if ((lower.includes("добавь") || lower.includes("добавить") || lower.includes("запиши") || lower.includes("сохрани")) && document.getElementById('work-name').value.trim() !== '') {
+            addToEstimate();
+            return;
+        }
+
+        let words = lower.split(/\s+/);
+        let nameWords = [];
+        let qty = 0;
+        let currentNum = 0;
+        let unit = "м²";
+
+        for (let i = 0; i < words.length; i++) {
+            let w = words[i].replace(/[^а-я0-9.]/g, '');
+            if (!w) continue;
+
+            if (w.match(/^\d+(\.\d+)?$/)) {
+                qty += parseFloat(w);
+                continue;
+            }
+
+            if (NUMBERS_MAP[w] !== undefined) {
+                let val = NUMBERS_MAP[w];
+                if (val >= 1000) {
+                    if (currentNum === 0) currentNum = 1;
+                    qty += currentNum * val;
+                    currentNum = 0;
+                } else {
+                    currentNum += val;
+                }
+                continue;
+            }
+
+            if (w === "половиной") { qty += 0.5; continue; }
+            if (w === "полтора") { qty += 1.5; continue; }
+
+            if (UNITS_MAP[w] !== undefined) {
+                unit = UNITS_MAP[w];
+                continue;
+            }
+
+            if (w === "по" || w === "за" || w === "на" || w === "добавь" || w === "добавить" || w === "запиши" || w === "сохрани") {
+                continue;
+            }
+
+            nameWords.push(words[i]);
+        }
+
+        qty += currentNum;
+
+        let finalName = nameWords.join(" ").trim();
+        if (finalName.length > 0) {
+            finalName = finalName.charAt(0).toUpperCase() + finalName.slice(1);
+        } else {
+            finalName = "Работа";
+        }
+
+        document.getElementById('work-name').value = finalName;
+        if (qty > 0) document.getElementById('work-qty').value = qty;
 
         const unitSelect = document.getElementById('work-unit');
         for (let i = 0; i < unitSelect.options.length; i++) {
@@ -149,24 +443,89 @@
                 break;
             }
         }
-    };
 
-    let isRecording = false;
-    micBtn.addEventListener('click', () => {
-        if (!isRecording) {
-            if (window.AndroidApp) window.AndroidApp.startVosk();
-            isRecording = true;
-            micBtn.classList.add('recording');
-            micBtn.innerHTML = '<span style="font-size: 24px;">🛑</span> Идет запись... Нажмите, чтобы остановить';
-            statusDiv.innerText = 'Говорите...';
+        let savedPrices = JSON.parse(localStorage.getItem('my_prices')) || {};
+        const nameKey = finalName.trim().toLowerCase();
+
+        if (savedPrices[nameKey]) {
+            document.getElementById('work-price').value = savedPrices[nameKey];
+            statusDiv.innerText = `Цена подставлена: ${savedPrices[nameKey]} ₽. Скажите 'Добавь'.`;
         } else {
-            if (window.AndroidApp) window.AndroidApp.stopVosk();
-            isRecording = false;
-            micBtn.classList.remove('recording');
-            micBtn.innerHTML = '<span style="font-size: 24px;">🎤</span> Нажмите и говорите';
-            statusDiv.innerText = 'Обработка...';
+            document.getElementById('work-price').value = '';
+            statusDiv.innerText = "Данные вставлены. Введите цену и скажите 'Добавь'.";
         }
-    });
+        statusDiv.style.color = "lightgreen";
+    }
+
+    function parseDnevnikVoice(lower) {
+        let type = 'income';
+        if (lower.includes('потрат') || lower.includes('расход') || lower.includes('куп') || lower.includes('отда') || lower.includes('израсходова')) {
+            type = 'expense';
+        } else if (lower.includes('заплат') && !lower.includes('заказчик')) {
+            type = 'expense';
+        }
+
+        let words = lower.split(/\s+/);
+        let nameWords = [];
+        let amount = 0;
+        let currentNum = 0;
+
+        for (let i = 0; i < words.length; i++) {
+            let w = words[i].replace(/[^а-я0-9.]/g, '');
+            if (!w) continue;
+
+            if (w.match(/^\d+(\.\d+)?$/)) {
+                amount += parseFloat(w);
+                continue;
+            }
+
+            if (NUMBERS_MAP[w] !== undefined) {
+                let val = NUMBERS_MAP[w];
+                if (val >= 1000) {
+                    if (currentNum === 0) currentNum = 1;
+                    amount += currentNum * val;
+                    currentNum = 0;
+                } else {
+                    currentNum += val;
+                }
+                continue;
+            }
+
+            if (w === "половиной") { amount += 0.5; continue; }
+            if (w === "полтора") { amount += 1.5; continue; }
+
+            if (w.match(/^(заказчик|выплатил|выплатила|заплатил|заплатила|потратил|потратила|потрачена|передал|передала|отдал|отдала|получил|получила|купил|купила|рублей|рубля|рубль)$/)) {
+                continue;
+            }
+
+            nameWords.push(words[i]);
+        }
+
+        amount += currentNum;
+
+        let finalName = nameWords.join(" ").trim();
+        if (!finalName) finalName = type === 'income' ? 'Поступление' : 'Расход';
+        finalName = finalName.charAt(0).toUpperCase() + finalName.slice(1);
+
+        const newRecord = {
+            id: Date.now(),
+            type: type,
+            category: finalName,
+            amount: amount,
+            date: new Date().toLocaleDateString('ru-RU')
+        };
+
+        financeData.push(newRecord);
+        localStorage.setItem('my_finance', JSON.stringify(financeData));
+        renderFinance();
+
+        statusDiv.style.color = type === 'income' ? '#28a745' : '#ff4444';
+        statusDiv.innerText = type === 'income'
+            ? `💰 Приход: ${finalName} — ${amount.toLocaleString('ru-RU')} ₽`
+            : `💸 Расход: ${finalName} — ${amount.toLocaleString('ru-RU')} ₽`;
+    }
+
+    let currentEstimate = JSON.parse(localStorage.getItem('my_estimate')) || [];
 
     function renderEstimate() {
         const listDiv = document.getElementById('estimate-list');
@@ -206,21 +565,20 @@
         exportButtons.style.display = 'flex';
     }
 
-    document.getElementById('add-btn').addEventListener('click', () => {
+    function addToEstimate() {
         const name = document.getElementById('work-name').value;
         const qty = parseFloat(document.getElementById('work-qty').value);
         const unit = document.getElementById('work-unit').value;
         const price = parseFloat(document.getElementById('work-price').value);
 
         if (!name || isNaN(qty) || isNaN(price)) {
-            alert('Заполните все поля правильно!');
+            statusDiv.innerText = "Ошибка: заполните все поля!";
+            statusDiv.style.color = "red";
             return;
         }
 
-        // СОХРАНЯЕМ ЦЕНУ В СПРАВОЧНИК
         let savedPrices = JSON.parse(localStorage.getItem('my_prices')) || {};
-        const nameKey = name.trim().toLowerCase();
-        savedPrices[nameKey] = price;
+        savedPrices[name.trim().toLowerCase()] = price;
         localStorage.setItem('my_prices', JSON.stringify(savedPrices));
 
         const total = qty * price;
@@ -231,13 +589,86 @@
         document.getElementById('work-qty').value = '';
         document.getElementById('work-price').value = '';
 
+        statusDiv.innerText = "Работа добавлена в смету!";
+        statusDiv.style.color = "lightgreen";
+
         renderEstimate();
-    });
+    }
+
+    function clearFields() {
+        document.getElementById('work-name').value = '';
+        document.getElementById('work-qty').value = '';
+        document.getElementById('work-price').value = '';
+        statusDiv.innerText = "Поля очищены. Диктуйте заново.";
+        statusDiv.style.color = "yellow";
+    }
+
+    document.getElementById('add-btn').addEventListener('click', addToEstimate);
 
     window.deleteItem = (index) => {
         currentEstimate.splice(index, 1);
         localStorage.setItem('my_estimate', JSON.stringify(currentEstimate));
         renderEstimate();
+    };
+
+    let financeData = JSON.parse(localStorage.getItem('my_finance')) || [];
+
+    function renderFinance() {
+        const listDiv = document.getElementById('finance-list');
+        const balanceSpan = document.getElementById('finance-balance-sum');
+
+        if (financeData.length === 0) {
+            listDiv.innerHTML = '<p style="color: #666; font-size: 14px; text-align: center;">Записей пока нет</p>';
+            balanceSpan.innerText = '0 ₽';
+            return;
+        }
+
+        listDiv.innerHTML = '';
+        let balance = 0;
+
+        const sortedData = [...financeData].reverse();
+
+        sortedData.forEach((item) => {
+            const isIncome = item.type === 'income';
+            const sign = isIncome ? '+' : '-';
+            const colorClass = isIncome ? 'type-income' : 'type-expense';
+
+            balance += isIncome ? item.amount : -item.amount;
+
+            const div = document.createElement('div');
+            div.className = 'finance-item';
+            div.innerHTML = `
+                <div class="finance-info">
+                    <div class="finance-name">${item.category}</div>
+                    <div class="finance-type ${colorClass}">${isIncome ? 'Приход' : 'Расход'} • ${item.date}</div>
+                </div>
+                <div style="display:flex; align-items:center;">
+                    <div class="finance-amount ${colorClass}">${sign}${item.amount.toLocaleString('ru-RU')} ₽</div>
+                    <button class="delete-item-btn" onclick="deleteFinance(${item.id})">✕</button>
+                </div>
+            `;
+            listDiv.appendChild(div);
+        });
+
+        const balanceColor = balance >= 0 ? '#00ff88' : '#ff4444';
+        balanceSpan.style.color = balanceColor;
+        balanceSpan.innerText = balance.toLocaleString('ru-RU') + ' ₽';
+    }
+
+    window.deleteFinance = (id) => {
+        financeData = financeData.filter(item => item.id !== id);
+        localStorage.setItem('my_finance', JSON.stringify(financeData));
+        renderFinance();
+    };
+
+    window.clearAllFinance = () => {
+        if (confirm("Вы уверены, что хотите удалить ВСЕ финансовые записи?")) {
+            financeData = [];
+            localStorage.setItem('my_finance', JSON.stringify(financeData));
+            renderFinance();
+            statusDiv.innerText = "Финансы очищены.";
+            statusDiv.style.color = "yellow";
+        }
     };
 
     window.downloadPDF = async () => {
@@ -346,6 +777,7 @@
     };
 
     renderEstimate();
+    renderFinance();
 </script>
 
 </body>

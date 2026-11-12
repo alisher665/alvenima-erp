@@ -12,7 +12,10 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
+import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
 import android.util.Base64;
+import android.util.Log;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
@@ -27,6 +30,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 
+import org.json.JSONObject;
 import org.vosk.Model;
 import org.vosk.Recognizer;
 import org.vosk.android.StorageService;
@@ -39,16 +43,14 @@ import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public class MainActivity extends AppCompatActivity {
 
     private static final int REQUEST_AUDIO_PERMISSION = 101;
+    private static final String TAG = "VoskDebug";
     private WebView webView;
     private ServerSocket serverSocket;
     private ExecutorService serverExecutor;
@@ -60,11 +62,50 @@ public class MainActivity extends AppCompatActivity {
     private boolean isRecording = false;
     private String lastRecognizedText = "";
 
+    private TextToSpeech tts;
+    private boolean isTtsReady = false;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // 1. Инициализация Vosk
+        // Инициализация TTS с обработчиком окончания речи
+        tts = new TextToSpeech(this, status -> {
+            if (status == TextToSpeech.SUCCESS) {
+                int result = tts.setLanguage(new Locale("ru", "RU"));
+                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    Log.e(TAG, "Русский язык не поддерживается TTS");
+                } else {
+                    isTtsReady = true;
+
+                    tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+                        @Override
+                        public void onStart(String utteranceId) {}
+
+                        @Override
+                        public void onDone(String utteranceId) {
+                            // Когда TTS закончил говорить, сообщаем JS
+                            runOnUiThread(() -> {
+                                if (webView != null) {
+                                    webView.evaluateJavascript("onTtsDone();", null);
+                                }
+                            });
+                        }
+
+                        @Override
+                        public void onError(String utteranceId) {
+                            // В случае ошибки тоже сообщаем JS, чтобы не застрять
+                            runOnUiThread(() -> {
+                                if (webView != null) {
+                                    webView.evaluateJavascript("onTtsDone();", null);
+                                }
+                            });
+                        }
+                    });
+                }
+            }
+        });
+
         StorageService.unpack(this, "vosk-model-small-ru-0.22", "model",
                 (model) -> {
                     this.model = model;
@@ -105,10 +146,14 @@ public class MainActivity extends AppCompatActivity {
         startLocalServer();
     }
 
-    // ==========================================
-    // МОСТ МЕЖДУ JAVASCRIPT И JAVA
-    // ==========================================
     public class WebAppInterface {
+
+        @JavascriptInterface
+        public void speak(String text) {
+            if (isTtsReady && tts != null) {
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "TTS_ID");
+            }
+        }
 
         @JavascriptInterface
         public void startVosk() {
@@ -142,12 +187,12 @@ public class MainActivity extends AppCompatActivity {
                         if (bytesRead > 0) {
                             if (recognizer.acceptWaveForm(buffer, bytesRead)) {
                                 String result = recognizer.getResult();
-                                String cleanText = result.replaceAll(".*\"text\"\\s*:\\s*\"([^\"]*)\".*", "$1").replace("{", "").replace("}", "").trim();
+                                String cleanText = extractTextFromJson(result);
                                 if (!cleanText.isEmpty()) {
                                     lastRecognizedText = cleanText;
-                                    parseAndFill(cleanText);
+                                    sendTextToJS(cleanText);
                                 }
-                                runOnUiThread(() -> webView.evaluateJavascript("onVoskResult('" + cleanText + "')", null));
+                                runOnUiThread(() -> webView.evaluateJavascript("onVoskResult(" + JSONObject.quote(cleanText) + ")", null));
                             }
                         }
                     }
@@ -173,13 +218,13 @@ public class MainActivity extends AppCompatActivity {
                 }
                 if (recognizer != null) {
                     String finalResult = recognizer.getFinalResult();
-                    String cleanText = finalResult.replaceAll(".*\"text\"\\s*:\\s*\"([^\"]*)\".*", "$1").replace("{", "").replace("}", "").trim();
+                    String cleanText = extractTextFromJson(finalResult);
                     if (!cleanText.isEmpty()) {
                         lastRecognizedText = cleanText;
-                        parseAndFill(cleanText);
+                        sendTextToJS(cleanText);
                     }
                     String toSend = lastRecognizedText.isEmpty() ? "" : lastRecognizedText;
-                    runOnUiThread(() -> webView.evaluateJavascript("onVoskResult('" + toSend + "')", null));
+                    runOnUiThread(() -> webView.evaluateJavascript("onVoskResult(" + JSONObject.quote(toSend) + ")", null));
                     lastRecognizedText = "";
                     recognizer.close();
                     recognizer = null;
@@ -189,86 +234,29 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        private void parseAndFill(String text) {
-            String lowerText = text.toLowerCase().replace(",", ".");
-
-            // Словарь чисел (можно расширить)
-            Map<String, Integer> numberWords = new HashMap<>();
-            numberWords.put("ноль", 0); numberWords.put("один", 1); numberWords.put("два", 2);
-            numberWords.put("три", 3); numberWords.put("четыре", 4); numberWords.put("пять", 5);
-            numberWords.put("шесть", 6); numberWords.put("семь", 7); numberWords.put("восемь", 8);
-            numberWords.put("девять", 9); numberWords.put("десять", 10);
-            numberWords.put("одиннадцать", 11); numberWords.put("двенадцать", 12);
-            numberWords.put("тринадцать", 13); numberWords.put("четырнадцать", 14);
-            numberWords.put("пятнадцать", 15); numberWords.put("шестнадцать", 16);
-            numberWords.put("семнадцать", 17); numberWords.put("восемнадцать", 18);
-            numberWords.put("девятнадцать", 19); numberWords.put("двадцать", 20);
-            numberWords.put("тридцать", 30); numberWords.put("сорок", 40);
-            numberWords.put("пятьдесят", 50); numberWords.put("шестьдесят", 60);
-            numberWords.put("семьдесят", 70); numberWords.put("восемьдесят", 80);
-            numberWords.put("девяносто", 90); numberWords.put("сто", 100);
-
-            String name = lowerText;
-            String qty = "";
-            String unit = "м²";
-
-            // Ищем цифры
-            Pattern pattern = Pattern.compile("(\\d+(\\.\\d+)?)");
-            Matcher matcher = pattern.matcher(lowerText);
-
-            if (matcher.find()) {
-                qty = matcher.group(1);
-                name = lowerText.substring(0, matcher.start()).trim();
-            } else {
-                // Если цифр нет, ищем числа словами
-                String[] words = lowerText.split("\\s+");
-                int foundNumber = -1;
-                int numberIndex = -1;
-
-                for (int i = 0; i < words.length; i++) {
-                    String word = words[i].replaceAll("[^а-я]", "");
-                    if (numberWords.containsKey(word)) {
-                        int val = numberWords.get(word);
-                        // Проверяем следующее слово (например, "тридцать" и "пять" = 35)
-                        if (i + 1 < words.length) {
-                            String nextWord = words[i + 1].replaceAll("[^а-я]", "");
-                            if (numberWords.containsKey(nextWord) && val >= 20 && numberWords.get(nextWord) < 10) {
-                                val += numberWords.get(nextWord);
-                                i++; // Пропускаем следующее слово
-                            }
-                        }
-                        foundNumber = val;
-                        numberIndex = i;
-                        break;
-                    }
+        private String extractTextFromJson(String json) {
+            try {
+                int start = json.indexOf("\"text\"");
+                if (start != -1) {
+                    start = json.indexOf(":", start) + 1;
+                    int end = json.lastIndexOf("}");
+                    String textPart = json.substring(start, end).trim();
+                    if (textPart.startsWith("\"")) textPart = textPart.substring(1);
+                    if (textPart.endsWith("\"")) textPart = textPart.substring(0, textPart.length() - 1);
+                    return textPart.trim();
                 }
+            } catch (Exception ignored) {}
+            return "";
+        }
 
-                if (foundNumber != -1) {
-                    qty = String.valueOf(foundNumber);
-                    // Отрезаем все слова до и включая число
-                    name = lowerText.substring(0, lowerText.indexOf(words[numberIndex])).trim();
-                }
-            }
-
-            name = name.replaceAll("(на|по|в|с|и|до)$", "").trim();
-
-            if (lowerText.contains("квадрат") || lowerText.contains("кв м") || lowerText.contains("квадратный метр")) {
-                unit = "м²";
-            } else if (lowerText.contains("метр") || lowerText.contains("погонн")) {
-                unit = "м.п.";
-            } else if (lowerText.contains("штук") || lowerText.contains("шт")) {
-                unit = "шт.";
-            } else if (lowerText.contains("комплект")) {
-                unit = "компл.";
-            }
-
-            final String finalName = name;
-            final String finalQty = qty;
-            final String finalUnit = unit;
-
+        private void sendTextToJS(String text) {
             runOnUiThread(() -> {
-                String js = String.format("onVoiceParsed('%s', '%s', '%s')", finalName, finalQty, finalUnit);
-                webView.evaluateJavascript(js, null);
+                try {
+                    String js = String.format("window.handleVoiceInput(%s);", JSONObject.quote(text));
+                    webView.evaluateJavascript(js, null);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
             });
         }
 
@@ -411,6 +399,10 @@ public class MainActivity extends AppCompatActivity {
             if (recognizer != null) recognizer.close();
             if (serverSocket != null) serverSocket.close();
             if (serverExecutor != null) serverExecutor.shutdown();
+            if (tts != null) {
+                tts.stop();
+                tts.shutdown();
+            }
         } catch (Exception e) {
             e.printStackTrace();
         }
