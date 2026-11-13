@@ -1,21 +1,15 @@
 plugins {
-    alias(libs.plugins.android.application)
-}
-
-java {
-    toolchain {
-        languageVersion.set(JavaLanguageVersion.of(21))
-    }
+    id("com.android.application")
 }
 
 android {
     namespace = "ru.alvenima.smetchik"
-    compileSdk = 36
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "ru.alvenima.smetchik"
         minSdk = 24
-        targetSdk = 36
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0"
 
@@ -38,12 +32,14 @@ android {
 }
 
 dependencies {
-    implementation(libs.appcompat)
-    implementation(libs.material)
-    implementation(libs.activity.ktx)
-    implementation(libs.constraintlayout)
+    implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("com.google.android.material:material:1.10.0")
+    implementation("androidx.activity:activity-ktx:1.8.0")
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
 
-    // Vosk для офлайн-распознавания
-    implementation(libs.vosk)
-    implementation(libs.jna) { artifact { type = "aar" } }
+    // Vosk для офлайн-распознавания речи (прямые ссылки)
+    implementation("com.alphacephei:vosk-android:0.3.45") {
+        exclude(group = "net.java.dev.jna", module = "jna")
+    }
+    implementation("net.java.dev.jna:jna:5.13.0@aar")
 }

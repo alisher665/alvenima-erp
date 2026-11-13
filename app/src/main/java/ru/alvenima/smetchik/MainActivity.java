@@ -4,6 +4,7 @@ import android.Manifest;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
@@ -51,7 +52,8 @@ import java.util.concurrent.Executors;
 public class MainActivity extends AppCompatActivity {
 
     private static final int REQUEST_AUDIO_PERMISSION = 101;
-    private static final int FILECHOOSER_RESULTCODE = 102; // Код для выбора фото
+    private static final int REQUEST_NOTIFICATION_PERMISSION = 103;
+    private static final int FILECHOOSER_RESULTCODE = 102;
     private static final String TAG = "VoskDebug";
 
     private WebView webView;
@@ -68,13 +70,25 @@ public class MainActivity extends AppCompatActivity {
     private TextToSpeech tts;
     private boolean isTtsReady = false;
 
-    // Переменная для обработки выбора файла из HTML
     private ValueCallback<Uri[]> mFilePathCallback;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // КРАСИМ СИСТЕМНУЮ ПОЛОСУ СВЕРХУ В ЧЕРНЫЙ ЦВЕТ
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            getWindow().setStatusBarColor(Color.BLACK);
+        }
+
+        // Запрос разрешения на уведомления (Android 13+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATION_PERMISSION);
+            }
+        }
+
+        // Инициализация TTS (Синтезатор речи)
         tts = new TextToSpeech(this, status -> {
             if (status == TextToSpeech.SUCCESS) {
                 int result = tts.setLanguage(new Locale("ru", "RU"));
@@ -82,7 +96,6 @@ public class MainActivity extends AppCompatActivity {
                     Log.e(TAG, "Русский язык не поддерживается TTS");
                 } else {
                     isTtsReady = true;
-
                     tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
                         @Override
                         public void onStart(String utteranceId) {}
@@ -112,7 +125,7 @@ public class MainActivity extends AppCompatActivity {
         StorageService.unpack(this, "vosk-model-small-ru-0.22", "model",
                 (model) -> {
                     this.model = model;
-                    runOnUiThread(() -> Toast.makeText(this, "Модель Vosk готова!", Toast.LENGTH_SHORT).show());
+
                     runOnUiThread(() -> webView.evaluateJavascript("onModelLoaded()", null));
                 },
                 (exception) -> {
@@ -151,7 +164,7 @@ public class MainActivity extends AppCompatActivity {
                 mFilePathCallback = filePathCallback;
 
                 Intent intent = fileChooserParams.createIntent();
-                intent.setType("image/*"); // Разрешаем выбирать только картинки
+                intent.setType("image/*");
 
                 try {
                     startActivityForResult(intent, FILECHOOSER_RESULTCODE);
@@ -216,6 +229,7 @@ public class MainActivity extends AppCompatActivity {
             }
 
             try {
+                // Создаем распознаватель (без принудительного словаря, чтобы понимал любые слова)
                 recognizer = new Recognizer(model, 16000.0f);
                 lastRecognizedText = "";
 
@@ -430,6 +444,10 @@ public class MainActivity extends AppCompatActivity {
         if (requestCode == REQUEST_AUDIO_PERMISSION) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 showToast("Микрофон разрешен! Нажмите кнопку записи еще раз.");
+            }
+        } else if (requestCode == REQUEST_NOTIFICATION_PERMISSION) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                showToast("Уведомления разрешены!");
             }
         }
     }
