@@ -1,8 +1,12 @@
 package ru.alvenima.smetchik;
 
 import android.Manifest;
+import android.app.AlarmManager;
+import android.app.PendingIntent;
 import android.content.ContentValues;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.media.AudioFormat;
@@ -37,6 +41,7 @@ import org.vosk.Model;
 import org.vosk.Recognizer;
 import org.vosk.android.StorageService;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -133,6 +138,7 @@ public class MainActivity extends AppCompatActivity {
                 });
 
         webView = new WebView(this);
+        WebView.setWebContentsDebuggingEnabled(true);
         WebSettings webSettings = webView.getSettings();
         webSettings.setJavaScriptEnabled(true);
         webSettings.setDomStorageEnabled(true);
@@ -207,6 +213,42 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public class WebAppInterface {
+
+        @JavascriptInterface
+        public void setAlarm(long timestamp, String text) {
+            AlarmManager alarmManager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+            Intent intent = new Intent(MainActivity.this, AlarmReceiver.class);
+            intent.putExtra("message", text);
+            intent.putExtra("timestamp", timestamp);
+
+            int requestCode = (int) (timestamp / 1000);
+            PendingIntent pendingIntent = PendingIntent.getBroadcast(MainActivity.this, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+            // Сохраняем в память телефона на случай перезагрузки
+            SharedPreferences prefs = getSharedPreferences("AlarmsData", Context.MODE_PRIVATE);
+            prefs.edit().putString(String.valueOf(timestamp), text).apply();
+
+            // Проверка разрешений для Android 12+ (Samsung)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (!alarmManager.canScheduleExactAlarms()) {
+                    showToast("Разрешите точные будильники в настройках!");
+                    Intent intentPerm = new Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM);
+                    startActivity(intentPerm);
+                    return;
+                }
+            }
+
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, timestamp, pendingIntent);
+                } else {
+                    alarmManager.setExact(AlarmManager.RTC_WAKEUP, timestamp, pendingIntent);
+                }
+                showToast("Напоминание установлено!");
+            } catch (SecurityException e) {
+                showToast("Ошибка: нет разрешения на будильник");
+            }
+        }
 
         @JavascriptInterface
         public void speak(String text) {
@@ -383,14 +425,15 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startLocalServer() {
-        serverExecutor = Executors.newSingleThreadExecutor();
+        serverExecutor = Executors.newCachedThreadPool(); // Меняем на пул потоков
         serverExecutor.execute(() -> {
             try {
                 serverSocket = new ServerSocket(8080, 0, InetAddress.getByName("127.0.0.1"));
                 runOnUiThread(() -> webView.loadUrl("http://127.0.0.1:8080/index.html"));
                 while (!serverSocket.isClosed()) {
                     Socket socket = serverSocket.accept();
-                    handleRequest(socket);
+                    // Отправляем каждый запрос в отдельный поток, чтобы не было зависаний
+                    serverExecutor.execute(() -> handleRequest(socket));
                 }
             } catch (IOException e) {
                 e.printStackTrace();
@@ -412,18 +455,39 @@ public class MainActivity extends AppCompatActivity {
                 String[] parts = request.split(" ");
                 if (parts.length > 1 && !parts[1].equals("/")) {
                     filePath = parts[1].substring(1);
+                    if (filePath.contains("?")) {
+                        filePath = filePath.split("\\?")[0]; // Убираем GET параметры
+                    }
                 }
             }
 
+            // Защита от выхода за пределы папки assets
+            if (filePath.contains("..")) {
+                output.write("HTTP/1.1 403 Forbidden\r\n\r\n".getBytes());
+                output.flush();
+                socket.close();
+                return;
+            }
+
             try {
+                // Правильное и безопасное чтение файла
                 InputStream fileStream = getAssets().open(filePath);
-                byte[] fileBytes = new byte[fileStream.available()];
-                fileStream.read(fileBytes);
+                ByteArrayOutputStream byteBuffer = new ByteArrayOutputStream();
+                int bufferSize = 1024;
+                byte[] bufferFile = new byte[bufferSize];
+                int len = 0;
+                while ((len = fileStream.read(bufferFile)) != -1) {
+                    byteBuffer.write(bufferFile, 0, len);
+                }
+                byte[] fileBytes = byteBuffer.toByteArray();
                 fileStream.close();
 
                 String mimeType = "text/html";
                 if (filePath.endsWith(".js")) mimeType = "application/javascript";
                 if (filePath.endsWith(".css")) mimeType = "text/css";
+                if (filePath.endsWith(".png")) mimeType = "image/png";
+                if (filePath.endsWith(".jpg") || filePath.endsWith(".jpeg")) mimeType = "image/jpeg";
+                if (filePath.endsWith(".svg")) mimeType = "image/svg+xml";
 
                 String header = "HTTP/1.1 200 OK\r\nContent-Type: " + mimeType + "\r\nConnection: close\r\n\r\n";
                 output.write(header.getBytes());
@@ -443,11 +507,9 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_AUDIO_PERMISSION) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                showToast("Микрофон разрешен! Нажмите кнопку записи еще раз.");
-            }
-        } else if (requestCode == REQUEST_NOTIFICATION_PERMISSION) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                showToast("Уведомления разрешены!");
+                showToast("Микрофон разрешен!");
+                // Автоматически включаем микрофон
+                webView.evaluateJavascript("if (window.AndroidApp && window.AndroidApp.startVosk) window.AndroidApp.startVosk();", null);
             }
         }
     }

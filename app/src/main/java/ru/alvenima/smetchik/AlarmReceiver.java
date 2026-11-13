@@ -15,6 +15,12 @@ public class AlarmReceiver extends BroadcastReceiver {
         String message = intent.getStringExtra("message");
         if (message == null) message = "Пора на объект!";
 
+        // Удаляем сработавший будильник из памяти
+        long timestamp = intent.getLongExtra("timestamp", 0);
+        if (timestamp != 0) {
+            context.getSharedPreferences("AlarmsData", Context.MODE_PRIVATE).edit().remove(String.valueOf(timestamp)).apply();
+        }
+
         // Создаем канал уведомлений (для Android 8+)
         String channelId = "reminder_channel";
         NotificationManager notificationManager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);

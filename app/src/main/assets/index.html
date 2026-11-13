@@ -5,151 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>ALVENIMA ERP</title>
 
+    <!-- Подключение библиотек для PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
-    <style>
-        html { background-color: #0f0f0f; height: 100%; }
-        body { font-family: Arial, sans-serif; background-color: #0f0f0f; color: white; margin: 0; padding: 50px 20px 120px 20px; display: flex; flex-direction: column; align-items: center; overflow-x: hidden; }
-        .container { width: 100%; max-width: 500px; background: #1a1a1a; padding: 20px; border-radius: 15px; border: 1px solid #333; margin-bottom: 20px; }
-        h2 { text-align: center; color: #00c2ff; margin-top: 0; }
-
-        /* СТАТУС (В САМОМ ВЕРХУ) */
-        #status {
-            position: fixed;
-            top: 30px;
-            left: 0;
-            right: 0;
-            text-align: center;
-            font-size: 14px;
-            color: yellow;
-            min-height: 20px;
-            white-space: pre-wrap;
-            font-weight: bold;
-            z-index: 99999;
-            text-shadow: 1px 1px 3px black;
-            pointer-events: none;
-        }
-
-        /* СТИЛИ СТАРТОВОГО ЭКРАНА (ВАРИАНТ 4 - ГЛИТЧ) */
-        .splash-container { width: 100%; height: 100vh; position: fixed; top: 0; left: 0; z-index: 10000; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; background-color: #0f0f0f; transition: opacity 0.5s ease; }
-        .splash-container.fade-out { opacity: 0; pointer-events: none; }
-
-        .logo-wrapper { position: relative; padding: 20px; display: flex; justify-content: center; align-items: center; }
-
-        /* Контейнер логотипа */
-        .logo {
-            position: relative;
-            font-size: 42px;
-            font-weight: 900;
-            color: #fff;
-            margin: 0;
-            display: flex;
-            gap: 5px;
-        }
-
-        /* Буквы появляются плавно, сразу с неоном (без тяжелого размытия) */
-        .letter {
-            display: inline-block;
-            opacity: 0;
-            transform: translateY(10px);
-            text-shadow: 0 0 10px #00c2ff, 0 0 20px #00c2ff;
-            animation: letterFadeIn 0.6s ease-out forwards, neonBoost 0.6s ease-in-out 1.2s forwards;
-        }
-
-        @keyframes letterFadeIn {
-            0% { opacity: 0; transform: translateY(10px); }
-            100% { opacity: 1; transform: translateY(0); }
-        }
-
-        @keyframes neonBoost {
-            0% { text-shadow: 0 0 10px #00c2ff, 0 0 20px #00c2ff; }
-            100% { text-shadow: 0 0 20px #00c2ff, 0 0 40px #00c2ff, 0 0 60px #00c2ff; }
-        }
-
-        .logo-sub { font-size: 14px; color: #888; letter-spacing: 2px; margin-top: 10px; text-transform: uppercase; text-align: center; animation: fadeInSub 1s ease-out 1s forwards; opacity: 0; }
-        @keyframes fadeInSub { 100% { opacity: 1; } }
-
-        /* Стили для страницы объектов используют существующие классы .object-list и .add-object-btn */
-
-        .object-list { width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 15px; margin-bottom: 20px; max-height: 40vh; overflow-y: auto; padding-right: 5px;}
-        .object-btn { background: #1a1a1a; border: 1px solid #444; padding: 20px; border-radius: 12px; color: white; font-size: 18px; font-weight: bold; text-align: left; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: 0.2s; }
-        .object-btn:active { border-color: #00c2ff; background: #222; }
-        .object-btn .arrow { color: #00c2ff; font-size: 24px; }
-
-        .add-object-btn { width: 100%; max-width: 400px; background: #00c2ff; color: white; border: none; padding: 18px; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 10px; box-shadow: 0 4px 15px rgba(0, 194, 255, 0.3); }
-        .add-object-btn:active { transform: scale(0.98); }
-
-        /* ОСТАЛЬНЫЕ СТИЛИ */
-        .top-bar { width: 100%; max-width: 500px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .top-object-btn { background: #1a1a1a; border: 1px solid #00c2ff; padding: 10px 15px; border-radius: 10px; cursor: pointer; color: #00c2ff; font-weight: bold; display: flex; align-items: center; gap: 8px; }
-        .top-object-btn span { color: white; }
-
-        .radial-menu { display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap: 15px; width: 320px; height: 320px; margin-top: 20px; margin-bottom: 30px; }
-        .radial-btn { background: #1a1a1a; border: 1px solid #333; border-radius: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; color: white; padding: 10px; }
-        .radial-btn:active { background: #222; border-color: #00c2ff; }
-        .radial-btn .icon { font-size: 28px; margin-bottom: 5px; }
-        .radial-btn .text { font-size: 11px; font-weight: bold; text-align: center; line-height: 1.2; }
-
-        .center-mic { grid-area: 2 / 2 / 3 / 3; background: #00c2ff; border: none; border-radius: 50%; box-shadow: 0 0 20px rgba(0, 194, 255, 0.5); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; color: white; font-size: 40px; }
-        .center-mic.recording { background: #ff4444; animation: pulse 1.5s infinite; box-shadow: 0 0 20px rgba(255, 68, 68, 0.7); }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
-
-        .btn-smeta { grid-area: 1 / 1 / 2 / 2; }
-        .btn-reminders { grid-area: 1 / 2 / 2 / 3; }
-        .btn-finance { grid-area: 1 / 3 / 2 / 4; }
-        .btn-diary { grid-area: 3 / 1 / 4 / 2; }
-        .btn-warehouse { grid-area: 3 / 3 / 4 / 4; }
-
-        /* ПЛАВАЮЩИЙ МИКРОФОН */
-        .big-mic-container { position: fixed; bottom: 100px; left: 0; right: 0; display: flex; justify-content: center; pointer-events: none; z-index: 1000; }
-        .big-mic-btn { pointer-events: auto; width: 90px; height: 90px; border-radius: 50%; background: #00c2ff; color: white; font-size: 40px; border: none; box-shadow: 0 6px 20px rgba(0, 194, 255, 0.5); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: transform 0.1s, background 0.3s; }
-        .big-mic-btn:active { transform: scale(0.95); }
-        .big-mic-btn.recording { background: #ff4444; animation: pulse 1.5s infinite; box-shadow: 0 6px 20px rgba(255, 68, 68, 0.7); }
-
-        .back-btn { background: none; border: none; color: #00c2ff; font-size: 16px; font-weight: bold; cursor: pointer; margin-bottom: 15px; display: flex; align-items: center; gap: 5px; padding: 0; }
-        .divider { text-align: center; margin: 20px 0; color: #666; font-size: 14px; position: relative; }
-        .divider::before, .divider::after { content: ''; position: absolute; top: 50%; width: 30%; height: 1px; background: #333; }
-        .divider::before { left: 0; } .divider::after { right: 0; }
-
-        .form-group { margin-bottom: 15px; }
-        label { display: block; font-size: 14px; color: #888; margin-bottom: 5px; }
-        input, select, textarea { width: 100%; padding: 12px; font-size: 16px; background: #222; color: white; border: 1px solid #444; border-radius: 8px; box-sizing: border-box; font-family: inherit;}
-        input:focus, select:focus, textarea:focus { border-color: #00c2ff; outline: none; }
-
-        .btn-add { width: 100%; padding: 15px; font-size: 16px; font-weight: bold; color: white; background: #28a745; border: none; border-radius: 8px; cursor: pointer; margin-top: 10px; }
-
-        .list-container { width: 100%; max-width: 500px; background: #1a1a1a; padding: 20px; border-radius: 15px; border: 1px solid #333; margin-bottom: 20px; }
-        .list-header { color: #00c2ff; margin-top: 0; margin-bottom: 15px; border-bottom: 1px solid #444; padding-bottom: 10px; }
-
-        .finance-item, .estimate-item, .diary-item, .reminder-item, .warehouse-item { display: flex; justify-content: space-between; align-items: flex-start; padding: 12px 0; border-bottom: 1px solid #333; }
-        .finance-item:last-child, .estimate-item:last-child, .diary-item:last-child, .reminder-item:last-child, .warehouse-item:last-child { border-bottom: none; }
-        .finance-info, .item-info, .diary-info, .reminder-info, .warehouse-info { flex: 1; }
-        .finance-name, .item-name, .warehouse-name { font-weight: bold; font-size: 15px; }
-        .finance-type, .item-details, .warehouse-details { font-size: 12px; margin-top: 4px; }
-        .type-income { color: #28a745; }
-        .type-expense { color: #ff4444; }
-        .item-total { color: #00ff88; font-weight: bold; margin-left: 10px; font-size: 16px; }
-        .finance-amount { font-weight: bold; font-size: 16px; margin-left: 10px; }
-        .delete-item-btn { background: none; border: none; color: #ff4444; cursor: pointer; font-size: 18px; margin-left: 10px; padding-top: 2px;}
-
-        .diary-text { color: #ddd; font-size: 14px; line-height: 1.4; margin-bottom: 5px; }
-        .diary-time { color: #888; font-size: 11px; }
-
-        .reminder-text { color: #fff; font-size: 16px; font-weight: bold; margin-bottom: 5px; }
-        .reminder-time { color: #00c2ff; font-size: 13px; }
-
-        .total-row { display: flex; justify-content: space-between; margin-top: 20px; padding-top: 15px; border-top: 2px solid #444; font-size: 18px; font-weight: bold; color: #00ff88; }
-
-        .export-buttons { display: flex; gap: 10px; margin-top: 20px; }
-        .btn-export { flex: 1; padding: 15px; font-size: 14px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; color: white; text-align: center; }
-        .btn-pdf { background-color: #d9534f; }
-        .btn-share { background-color: #00c2ff; }
-
-        .finance-balance { display: flex; justify-content: space-between; margin-top: 20px; padding-top: 15px; border-top: 2px solid #444; font-size: 18px; font-weight: bold; }
-
-        .hidden { display: none !important; }
-    </style>
+    <!-- Подключение стилей -->
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
@@ -177,23 +38,27 @@
     <h2 style="color: #00c2ff; margin-top: 40px; margin-bottom: 10px; font-size: 28px;">Ваши объекты</h2>
     <p style="color: #888; margin-bottom: 30px;">Выберите объект для работы</p>
 
-    <div class="object-list" id="objects-list-container" style="width: 100%; max-width: 400px;">
+    <div class="object-list" id="objects-list-container">
         <!-- Сюда будут загружаться объекты -->
     </div>
 
-    <button class="add-object-btn" style="margin-top: 20px;" onclick="addNewObjectPrompt()">
-        <span style="font-size: 24px;">+</span> Добавить объект
-    </button>
+    <div style="display: flex; gap: 10px; width: 100%; max-width: 400px; margin-top: 20px;">
+        <button class="add-object-btn" style="flex: 1; padding: 15px; font-size: 15px;" onclick="addNewObjectPrompt()">
+            <span style="font-size: 20px;">+</span> Объект
+        </button>
+
+        <button class="add-object-btn" style="flex: 1; background: #222; border: 1px solid #444; padding: 15px; font-size: 15px;" onclick="selectPersonalMode()">
+            <span style="font-size: 20px;">📝</span> Личное
+        </button>
+    </div>
 </div>
 
-<!-- ================= ГЛАВНОЕ МЕНЮ (РАДИАЛЬНОЕ) ================= -->
+<!-- ================= ГЛАВНОЕ МЕНЮ ================= -->
 <div id="view-home" class="hidden" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
-    <div class="top-bar">
-        <!-- Заменили стрелку "назад" на кнопку выбора объекта -->
-        <div class="top-object-btn" onclick="switchView('objects')">
-            🏢 <span id="current-object-name">Выбрать объект</span>
-        </div>
-        <div style="font-size: 12px; color: #888; text-align: right;">Голосовое<br>управление</div>
+    <div class="home-header">
+        <a class="back-link" onclick="switchView('objects')">← Назад</a>
+        <div class="object-title">Объект:</div>
+        <div class="object-name" id="current-object-name">...</div>
     </div>
 
     <div class="radial-menu">
@@ -207,7 +72,12 @@
             <span class="icon">💰</span><span class="text">Финансы</span>
         </button>
 
-        <button id="center-mic" class="center-mic" onclick="toggleMic()">🎤</button>
+        <button class="radial-btn btn-settings" onclick="switchView('settings')">
+            <span class="icon">⚙️</span><span class="text">Настройки</span>
+        </button>
+
+        <!-- ЦЕНТРАЛЬНЫЙ МИКРОФОН УБРАН, ОСТАВЛЕНА ПУСТОТА ДЛЯ СЕТКИ -->
+        <div style="grid-area: 2 / 2 / 3 / 3;"></div>
 
         <button class="radial-btn btn-diary" onclick="switchView('diary')">
             <span class="icon">📝</span><span class="text">Дневник</span>
@@ -218,17 +88,43 @@
     </div>
 </div>
 
-<!-- ПЛАВАЮЩИЙ МИКРОФОН (СКРЫТ ПО УМОЛЧАНИЮ) -->
-<div id="floating-mic-container" class="big-mic-container hidden">
-    <button id="floating-mic" class="big-mic-btn" onclick="toggleMic()">🎤</button>
+<!-- ЕДИНСТВЕННЫЙ ПЛАВАЮЩИЙ МИКРОФОН -->
+<button id="floating-mic" class="big-mic-btn hidden">🎤</button>
+
+<!-- ================= РАЗДЕЛ: НАСТРОЙКИ ================= -->
+<div id="view-settings" class="hidden" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
+    <div style="width: 100%; max-width: 500px; margin-bottom: 10px;"><button class="back-btn" onclick="switchView('home')">← Назад</button></div>
+    <div class="container">
+        <h2>Настройки</h2>
+
+        <div class="divider">РЕКВИЗИТЫ ДЛЯ PDF</div>
+        <div class="form-group"><label>Название компании / ФИО</label><input type="text" id="set-company" placeholder="ИП Иванов"></div>
+        <div class="form-group"><label>Телефон</label><input type="text" id="set-phone" placeholder="+7 (999) 123-45-67"></div>
+
+        <div class="divider">ИНТЕРФЕЙС</div>
+        <div class="form-group"><label>Валюта</label>
+            <select id="set-currency">
+                <option value="₽">Рубль (₽)</option>
+                <option value="₸">Тенге (₸)</option>
+                <option value="₴">Гривна (₴)</option>
+                <option value="$">Доллар ($)</option>
+                <option value="€">Евро (€)</option>
+            </select>
+        </div>
+
+        <button class="btn-add" onclick="saveSettings()" style="background: #007bff;">Сохранить настройки</button>
+
+        <div class="divider">ДАННЫЕ</div>
+        <button class="btn-add" onclick="exportData()" style="background: #444; margin-bottom: 10px;">📤 Создать бэкап (Скачать файл)</button>
+        <button class="btn-danger" onclick="clearAllAppData()">🗑 Полностью очистить приложение</button>
+    </div>
 </div>
 
-<!-- ОСТАЛЬНЫЕ ЭКРАНЫ -->
+<!-- ================= ОСТАЛЬНЫЕ РАЗДЕЛЫ ================= -->
 <div id="view-reminders" class="hidden" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
     <div style="width: 100%; max-width: 500px; margin-bottom: 10px;"><button class="back-btn" onclick="switchView('home')">← Назад</button></div>
     <div class="container">
         <h2>Напоминания</h2><div class="divider">ДИКТУЙТЕ ВРЕМЯ И ЗАДАЧУ</div>
-        <div style="text-align: center; color: #888; font-size: 14px; margin-bottom: 20px;">Пример: <i>"Завтра в два часа дня привезут плитку"</i><br><i>"Через час позвонить заказчику"</i></div>
         <div class="list-container" style="background: #111; padding: 15px; margin: 0;">
             <div id="reminders-list"></div>
             <button onclick="clearAllReminders()" style="width: 100%; margin-top: 15px; padding: 10px; background: #ff4444; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">🗑 Очистить список</button>
@@ -242,7 +138,7 @@
         <h2>Склад материалов</h2><div class="divider">ДОБАВИТЬ МАТЕРИАЛ ВРУЧНУЮ</div>
         <div class="form-group"><label>Название</label><input type="text" id="wh-name" placeholder="Например: Цемент М500"></div>
         <div style="display: flex; gap: 10px;"><div class="form-group" style="flex: 2;"><label>Кол-во</label><input type="number" id="wh-qty" placeholder="0" step="0.1"></div><div class="form-group" style="flex: 1;"><label>Ед.</label><select id="wh-unit"><option value="шт.">шт.</option><option value="меш.">меш.</option><option value="кг">кг</option><option value="м.">м.</option><option value="м²">м²</option></select></div></div>
-        <div class="form-group"><label>Цена закупки (₽)</label><input type="number" id="wh-price" placeholder="0"></div>
+        <div class="form-group"><label>Цена закупки (₽)</label><input type="text" inputmode="decimal" id="wh-price" placeholder="0"></div>
         <button id="add-wh-btn" class="btn-add" style="background: #007bff;">Добавить на склад</button>
         <div class="list-container" style="background: #111; padding: 15px; margin-top: 20px;"><h3 class="list-header">Остатки на складе</h3><div id="warehouse-list"></div></div>
     </div>
@@ -270,7 +166,7 @@
 <div id="view-finance" class="hidden" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
     <div style="width: 100%; max-width: 500px; margin-bottom: 10px;"><button class="back-btn" onclick="switchView('home')">← Назад</button></div>
     <div class="container">
-        <h2>Финансы</h2><div class="divider">ИЛИ ВВЕДИТЕ ВРУЧНУЮ</div><div style="text-align: center; color: #888; font-size: 14px; margin-bottom: 20px;">Пример: <i>"Заказчик выплатил три миллиона"</i><br><i>"Потратил пять тысяч на материалы"</i></div>
+        <h2>Финансы</h2><div class="divider">ИЛИ ВВЕДИТЕ ВРУЧНУЮ</div>
         <div class="list-container" style="background: #111; padding: 15px; margin: 0;"><div id="finance-list"></div><div class="finance-balance"><span>Баланс:</span><span id="finance-balance-sum" style="color: #00c2ff;">0 ₽</span></div><button onclick="clearAllFinance()" style="width: 100%; margin-top: 15px; padding: 10px; background: #ff4444; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">🗑 Очистить все записи</button></div>
     </div>
 </div>
@@ -283,467 +179,8 @@
     </div>
 </div>
 
-<script>
-    const statusDiv = document.getElementById('status');
-    let isRecording = false; let currentMicMode = 'splash'; let awaitingConfirm = false; let pendingDeleteAction = null; let wasRecordingBeforeTts = false;
-
-    // Логика объектов
-    let objectsList = JSON.parse(localStorage.getItem('my_objects')) || [];
-    let currentObject = localStorage.getItem('current_object') || '';
-
-    function renderSplash() {
-        const container = document.getElementById('objects-list-container');
-        if (objectsList.length === 0) {
-            container.innerHTML = '<p style="color: #666; text-align: center; margin-bottom: 20px;">Нет добавленных объектов.<br>Нажмите кнопку ниже.</p>';
-            return;
-        }
-        let html = '';
-        objectsList.forEach(obj => {
-            html += `
-            <div style="display:flex; gap: 10px; width: 100%;">
-                <button class="object-btn" style="flex:1;" onclick="selectObject('${obj}')"><span>🏢 ${obj}</span><span class="arrow">→</span></button>
-                <button style="background:#ff4444; border:none; border-radius:12px; width:50px; color:white; font-size:20px; cursor:pointer;" onclick="deleteObject('${obj}')">✕</button>
-            </div>`;
-        });
-        container.innerHTML = html;
-    }
-
-    // НОВАЯ ФУНКЦИЯ: Удаление объекта с подтверждением
-    window.deleteObject = function(name) {
-        if (confirm(`Вы уверены, что хотите удалить объект "${name}"?`)) {
-            objectsList = objectsList.filter(obj => obj !== name);
-            localStorage.setItem('my_objects', JSON.stringify(objectsList));
-
-            if (currentObject === name) {
-                currentObject = '';
-                localStorage.removeItem('current_object');
-            }
-
-            renderSplash();
-            statusDiv.innerText = "Объект удален";
-            statusDiv.style.color = "yellow";
-            setTimeout(()=>{statusDiv.innerText='';}, 2000);
-        }
-    };
-
-    window.addNewObjectPrompt = function() {
-        let name = prompt("Введите адрес или название объекта (например: Ленина 5):");
-        if (name && name.trim() !== "") {
-            name = name.trim();
-            if (!objectsList.includes(name)) {
-                objectsList.push(name);
-                localStorage.setItem('my_objects', JSON.stringify(objectsList));
-            }
-            selectObject(name);
-        }
-    };
-
-    window.selectObject = function(name) {
-        currentObject = name;
-        localStorage.setItem('current_object', currentObject);
-        document.getElementById('current-object-name').innerText = currentObject;
-        switchView('home');
-        statusDiv.innerText = "Открыт объект: " + currentObject;
-        statusDiv.style.color = "lightgreen";
-        setTimeout(()=>{statusDiv.innerText='';}, 2000);
-    };
-
-    // Навигация и микрофон
-    const MONTH_NAMES = { "01": "Январь", "02": "Февраль", "03": "Март", "04": "Апрель", "05": "Май", "06": "Июнь", "07": "Июль", "08": "Август", "09": "Сентябрь", "10": "Октябрь", "11": "Ноябрь", "12": "Декабрь" };
-    let smetaToggledYears = {}; let smetaToggledMonths = {}; let smetaToggledDays = {};
-    let finToggledYears = {}; let finToggledMonths = {}; let finToggledDays = {};
-    let diaryToggledYears = {}; let diaryToggledMonths = {}; let diaryToggledDays = {};
-
-    window.switchView = function(viewId) {
-        document.querySelectorAll('[id^="view-"]').forEach(el => el.classList.add('hidden'));
-        document.getElementById('view-' + viewId).classList.remove('hidden'); // Жестко задаем отображение
-
-        if (viewId === 'splash' || viewId === 'objects') {
-            document.getElementById('floating-mic-container').classList.add('hidden');
-        } else if (viewId === 'home') {
-            document.getElementById('floating-mic-container').classList.add('hidden');
-            document.getElementById('center-mic').classList.remove('hidden');
-        } else {
-            document.getElementById('floating-mic-container').classList.remove('hidden');
-        }
-
-        currentMicMode = viewId;
-        statusDiv.innerText = viewId === 'splash' ? 'Выберите объект' : (viewId === 'home' ? 'Главное меню' : (viewId === 'smeta' ? 'Смета' : (viewId === 'finance' ? 'Финансы' : (viewId === 'diary' ? 'Дневник' : (viewId === 'reminders' ? 'Напоминания' : 'Склад')))));
-        statusDiv.style.color = "yellow";
-        setTimeout(()=>{ if(statusDiv.innerText !== 'Слушаю...' && !isRecording) statusDiv.innerText=''; }, 2000);
-
-        if (viewId === 'splash' || viewId === 'objects') renderSplash();
-        if (viewId === 'home') updateHomeStats();
-        awaitingConfirm = false;
-    };
-
-    function updateHomeStats() {
-        document.getElementById('current-object-name').innerText = currentObject || 'Объект не выбран';
-    }
-
-    function speak(text) {
-        if (isRecording && window.AndroidApp && window.AndroidApp.stopVosk) {
-            wasRecordingBeforeTts = true; window.AndroidApp.stopVosk(); isRecording = false;
-            document.getElementById('center-mic').classList.remove('recording'); document.getElementById('center-mic').innerText = '🎤';
-            document.getElementById('floating-mic').classList.remove('recording'); document.getElementById('floating-mic').innerText = '🎤';
-        }
-        if (window.AndroidApp && window.AndroidApp.speak) window.AndroidApp.speak(text);
-    }
-
-    window.onTtsDone = function() {
-        if (wasRecordingBeforeTts) {
-            wasRecordingBeforeTts = false;
-            if (window.AndroidApp && window.AndroidApp.startVosk) {
-                window.AndroidApp.startVosk(); isRecording = true;
-                if (currentMicMode === 'home') {
-                    document.getElementById('center-mic').classList.add('recording'); document.getElementById('center-mic').innerText = '🛑';
-                } else {
-                    document.getElementById('floating-mic').classList.add('recording'); document.getElementById('floating-mic').innerText = '🛑';
-                }
-                statusDiv.innerText = 'Слушаю...';
-            }
-        }
-    };
-
-    window.onModelLoaded = () => { statusDiv.innerText = 'Модель готова!'; statusDiv.style.color = 'lightgreen'; setTimeout(()=>{statusDiv.innerText='';}, 2000); };
-    window.onVoskResult = (text) => { if (text && text.trim() !== "") { statusDiv.innerText = 'Вы сказали: ' + text; statusDiv.style.color = 'lightgreen'; } else { statusDiv.innerText = 'Ничего не распознано.'; } };
-
-    window.toggleMic = () => {
-        if (!isRecording) {
-            if (window.AndroidApp) window.AndroidApp.startVosk();
-            isRecording = true;
-            if (currentMicMode === 'home') {
-                document.getElementById('center-mic').classList.add('recording'); document.getElementById('center-mic').innerText = '🛑';
-            } else {
-                document.getElementById('floating-mic').classList.add('recording'); document.getElementById('floating-mic').innerText = '🛑';
-            }
-            statusDiv.innerText = 'Говорите...'; statusDiv.style.color = 'yellow';
-        } else {
-            if (window.AndroidApp) window.AndroidApp.stopVosk();
-            isRecording = false;
-            document.getElementById('center-mic').classList.remove('recording'); document.getElementById('center-mic').innerText = '🎤';
-            document.getElementById('floating-mic').classList.remove('recording'); document.getElementById('floating-mic').innerText = '🎤';
-            statusDiv.innerText = 'Обработка...';
-        }
-    };
-
-    // Парсер
-    const NUMBERS_MAP = { "ноль": 0, "один": 1, "одна": 1, "два": 2, "две": 2, "три": 3, "четыре": 4, "пять": 5, "шесть": 6, "семь": 7, "восемь": 8, "девять": 9, "десять": 10, "одиннадцать": 11, "двенадцать": 12, "тринадцать": 13, "четырнадцать": 14, "пятнадцать": 15, "шестнадцать": 16, "семнадцать": 17, "восемнадцать": 18, "девятнадцать": 19, "двадцать": 20, "тридцать": 30, "сорок": 40, "пятьдесят": 50, "шестьдесят": 60, "семьдесят": 70, "восемьдесят": 80, "девяносто": 90, "сто": 100, "двести": 200, "триста": 300, "четыреста": 400, "пятьсот": 500, "шестьсот": 600, "семьсот": 700, "восемьсот": 800, "девятьсот": 900, "тысяча": 1000, "тысячи": 1000, "тысяч": 1000, "миллион": 1000000, "миллиона": 1000000, "миллионов": 1000000 };
-    const UNITS_MAP = { "квадрат": "м²", "квадратов": "м²", "квадрата": "м²", "кв": "м²", "м2": "м²", "метр": "м.п.", "метров": "м.п.", "метра": "м.п.", "погонных": "м.п.", "штука": "шт.", "штук": "шт.", "штуки": "шт.", "шт": "шт.", "комплект": "компл.", "комплектов": "компл." };
-
-    let voiceBuffer = ""; let voiceTimer = null;
-    window.handleVoiceInput = (text) => {
-        voiceBuffer += " " + text; statusDiv.innerText = 'Слушаю: ' + voiceBuffer.trim(); statusDiv.style.color = 'lightgreen';
-        if (voiceTimer) clearTimeout(voiceTimer);
-        voiceTimer = setTimeout(() => { let finalText = voiceBuffer.trim(); voiceBuffer = ""; processVoiceCommand(finalText); }, 1200);
-    };
-
-    function processVoiceCommand(text) {
-        let lower = text.toLowerCase().replace(/,/g, '.');
-        let cleanText = lower.replace(/[^а-яё0-9]/g, ' ').replace(/\s+/g, ' ').trim();
-
-        if (awaitingConfirm) {
-            let hasNo = cleanText.split(' ').includes('нет') || cleanText.includes('отмена');
-            let hasYes = cleanText.split(' ').includes('да') || cleanText.includes('подтверждаю');
-            if (hasNo) { statusDiv.innerText = "❌ Отменено."; speak("Отменено"); awaitingConfirm = false; pendingDeleteAction = null; return; }
-            if (hasYes) {
-                if (pendingDeleteAction === 'smeta') { currentEstimate = []; localStorage.setItem('my_estimate', JSON.stringify(currentEstimate)); renderEstimate(); }
-                else if (pendingDeleteAction === 'finance') { financeData = []; localStorage.setItem('my_finance', JSON.stringify(financeData)); renderFinance(); }
-                else if (pendingDeleteAction === 'diary') { diaryData = []; localStorage.setItem('my_diary', JSON.stringify(diaryData)); renderDiary(); }
-                else if (pendingDeleteAction === 'reminders') { remindersData = []; localStorage.setItem('my_reminders', JSON.stringify(remindersData)); renderReminders(); }
-                statusDiv.innerText = "✅ Удалено!"; speak("Удалено"); awaitingConfirm = false; pendingDeleteAction = null; return;
-            }
-            awaitingConfirm = false; pendingDeleteAction = null; statusDiv.innerText = "Отменено."; speak("Отменено");
-        }
-
-        if (currentMicMode === 'splash') {
-            if (cleanText.includes("главная") || cleanText.includes("меню") || cleanText.includes("назад")) { switchView(currentObject ? 'home' : 'splash'); return; }
-            return; // На стартовом экране голосовых команд больше нет
-        }
-
-        if (cleanText.includes("главная") || cleanText.includes("меню") || cleanText.includes("назад")) { switchView('home'); return; }
-        if (cleanText === "смета" || cleanText.includes("открой смету")) { switchView('smeta'); return; }
-        if (cleanText === "финансы" || cleanText.includes("открой финансы")) { switchView('finance'); return; }
-        if (cleanText === "дневник" || cleanText.includes("открой дневник")) { switchView('diary'); return; }
-        if (cleanText === "напоминания" || cleanText.includes("открой напоминания")) { switchView('reminders'); return; }
-        if (cleanText === "склад" || cleanText.includes("открой склад")) { switchView('warehouse'); return; }
-
-        let isDeleteSmeta = /удал(ить|и)?\s+смет[уа]/.test(cleanText);
-        let isDeleteFin = /удал(ить|и)?\s+финанс[ыа]/.test(cleanText);
-        let isDeleteDiary = /удал(ить|и)?\s+дневник[а]?/.test(cleanText);
-        if (isDeleteSmeta || isDeleteFin || isDeleteDiary) {
-            awaitingConfirm = true; pendingDeleteAction = isDeleteSmeta ? 'smeta' : (isDeleteFin ? 'finance' : 'diary');
-            speak("Хотите удалить?"); statusDiv.innerText = "⚠️ Хотите удалить?"; return;
-        }
-
-        if (currentMicMode === 'smeta') parseSmetaVoice(lower);
-        else if (currentMicMode === 'finance') parseFinanceVoice(lower);
-        else if (currentMicMode === 'diary') parseDiaryVoice(lower);
-        else if (currentMicMode === 'reminders') parseReminderVoice(lower);
-        else if (currentMicMode === 'warehouse') statusDiv.innerText = "Используйте форму для ручного добавления.";
-    }
-
-    // Парсеры данных
-    function parseSmetaVoice(lower) {
-        if ((lower.includes("добавь") || lower.includes("добавить") || lower.includes("запиши") || lower.includes("сохрани")) && document.getElementById('work-name').value.trim() !== '') { addToEstimate(); return; }
-        let words = lower.split(/\s+/); let nameWords = []; let qty = 0; let currentNum = 0; let unit = "м²";
-        for (let i = 0; i < words.length; i++) {
-            let w = words[i].replace(/[^а-я0-9.]/g, ''); if (!w) continue;
-            if (w.match(/^\d+(\.\d+)?$/)) { qty += parseFloat(w); continue; }
-            if (NUMBERS_MAP[w] !== undefined) { let val = NUMBERS_MAP[w]; if (val >= 1000) { if (currentNum === 0) currentNum = 1; qty += currentNum * val; currentNum = 0; } else { currentNum += val; } continue; }
-            if (w === "половиной") { qty += 0.5; continue; } if (w === "полтора") { qty += 1.5; continue; }
-            if (UNITS_MAP[w] !== undefined) { unit = UNITS_MAP[w]; continue; }
-            if (w === "по" || w === "за" || w === "на" || w === "с" || w === "и" || w === "в" || w === "от" || w === "до" || w === "добавь" || w === "добавить" || w === "запиши" || w === "сохрани") { continue; }
-            nameWords.push(words[i]);
-        }
-        qty += currentNum; let finalName = nameWords.join(" ").trim(); if (finalName.length > 0) { finalName = finalName.charAt(0).toUpperCase() + finalName.slice(1); } else { finalName = "Работа"; }
-        document.getElementById('work-name').value = finalName; if (qty > 0) document.getElementById('work-qty').value = qty;
-        const unitSelect = document.getElementById('work-unit'); for (let i = 0; i < unitSelect.options.length; i++) { if (unitSelect.options[i].value === unit) { unitSelect.selectedIndex = i; break; } }
-        let savedPrices = JSON.parse(localStorage.getItem('my_prices')) || {};
-        if (savedPrices[finalName.trim().toLowerCase()]) { document.getElementById('work-price').value = savedPrices[finalName.trim().toLowerCase()]; statusDiv.innerText = `Цена подставлена: ${savedPrices[finalName.trim().toLowerCase()]} ₽.`; } else { document.getElementById('work-price').value = ''; statusDiv.innerText = "Данные вставлены. Введите цену."; }
-        statusDiv.style.color = "lightgreen";
-    }
-    function parseFinanceVoice(lower) {
-        let type = 'income'; if (lower.includes('потрат') || lower.includes('расход') || lower.includes('куп') || lower.includes('отда') || lower.includes('израсходова') || (lower.includes('заплат') && !lower.includes('заказчик'))) { type = 'expense'; }
-        let words = lower.split(/\s+/); let nameWords = []; let amount = 0; let currentNum = 0;
-        for (let i = 0; i < words.length; i++) {
-            let w = words[i].replace(/[^а-я0-9.]/g, ''); if (!w) continue;
-            if (w.match(/^\d+(\.\d+)?$/)) { amount += parseFloat(w); continue; }
-            if (NUMBERS_MAP[w] !== undefined) { let val = NUMBERS_MAP[w]; if (val >= 1000) { if (currentNum === 0) currentNum = 1; amount += currentNum * val; currentNum = 0; } else { currentNum += val; } continue; }
-            if (w === "половиной") { amount += 0.5; continue; } if (w === "полтора") { amount += 1.5; continue; }
-            if (w.match(/^(заказчик|выплатил|выплатила|заплатил|заплатила|потратил|потратила|потрачена|передал|передала|отдал|отдала|получил|получила|купил|купила|рублей|рубля|рубль|с|и|в|на)$/)) { continue; }
-            nameWords.push(words[i]);
-        }
-        amount += currentNum; let finalName = nameWords.join(" ").trim(); if (!finalName) finalName = type === 'income' ? 'Поступление' : 'Расход'; finalName = finalName.charAt(0).toUpperCase() + finalName.slice(1);
-        financeData.push({ id: Date.now(), type: type, category: finalName, amount: amount, date: new Date().toLocaleDateString('ru-RU') });
-        localStorage.setItem('my_finance', JSON.stringify(financeData)); renderFinance();
-        statusDiv.style.color = type === 'income' ? '#28a745' : '#ff4444';
-        statusDiv.innerText = type === 'income' ? `💰 Приход: ${finalName} — ${amount} ₽` : `💸 Расход: ${finalName} — ${amount} ₽`;
-    }
-    function parseDiaryVoice(lower) {
-        const now = new Date();
-        diaryData.push({ id: Date.now(), text: lower.charAt(0).toUpperCase() + lower.slice(1), date: now.toLocaleDateString('ru-RU'), time: now.toLocaleTimeString('ru-RU', {hour: '2-digit', minute:'2-digit'}) });
-        localStorage.setItem('my_diary', JSON.stringify(diaryData)); renderDiary(); statusDiv.innerText = "Запись добавлена!";
-    }
-    function parseReminderVoice(lower) {
-        let now = new Date(); let targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate()); let foundTime = false;
-        if (lower.includes("завтра")) { targetDate.setDate(targetDate.getDate() + 1); foundTime = true; }
-        if (lower.includes("послезавтра")) { targetDate.setDate(targetDate.getDate() + 2); foundTime = true; }
-        let hour = 0; let hourMatch = lower.match(/в\s+(\d{1,2})\s*(час|часа|часов)?/);
-        if (hourMatch) { hour = parseInt(hourMatch[1]); foundTime = true; } else { for (let key in NUMBERS_MAP) { if (lower.includes("в " + key + " ") || lower.includes("в " + key + " часа")) { hour = NUMBERS_MAP[key]; foundTime = true; break; } } }
-        if (lower.includes("дня") || lower.includes("вечера")) { if (hour > 0 && hour < 12) hour += 12; }
-        if (!foundTime) { statusDiv.innerText = "Не понял время."; return; }
-        targetDate.setHours(hour, 0, 0, 0); let timestamp = targetDate.getTime();
-        let eventText = lower.replace(/напомни|напоминание|завтра|послезавтра|сегодня/g, '').replace(/в \d{1,2}\s*(час|часа|часов)?/g, '').replace(/в (ноль|один|два|три|четыре|пять|шесть|семь|восемь|девять|десять|одиннадцать|двенадцать)\s*(час|часа|часов)?/g, '').replace(/дня|вечера|утра/g, '').trim();
-        if (!eventText) eventText = "Напоминание";
-        if (window.AndroidApp && window.AndroidApp.setAlarm) {
-            window.AndroidApp.setAlarm(timestamp, eventText);
-            remindersData.push({ id: Date.now(), text: eventText, time: timestamp, dateStr: targetDate.toLocaleString('ru-RU') });
-            localStorage.setItem('my_reminders', JSON.stringify(remindersData)); renderReminders();
-            statusDiv.innerText = `⏰ Установлено: ${eventText}`; statusDiv.style.color = "lightgreen"; speak("Напоминание установлено");
-        }
-    }
-
-    // Рендеры списков
-    let currentEstimate = JSON.parse(localStorage.getItem('my_estimate')) || [];
-    currentEstimate = currentEstimate.map((item, index) => { if (!item.date) item.date = new Date().toLocaleDateString('ru-RU'); if (!item.id) item.id = Date.now() + index; return item; });
-    function getTodayParts() { let today = new Date(); return { year: today.getFullYear().toString(), month: ('0' + (today.getMonth() + 1)).slice(-2), day: today.toLocaleDateString('ru-RU') }; }
-
-    window.toggleSmetaYear = function(year) { let c = document.getElementById('smeta-year-content-' + year); let i = document.getElementById('smeta-year-icon-' + year); if (!c) return; if (c.classList.contains('hidden')) { c.classList.remove('hidden'); i.innerText = '▲'; smetaToggledYears[year] = true; } else { c.classList.add('hidden'); i.innerText = '▼'; smetaToggledYears[year] = false; } };
-    window.toggleSmetaMonth = function(year, month) { let key = year + '-' + month; let c = document.getElementById('smeta-month-content-' + key); let i = document.getElementById('smeta-month-icon-' + key); if (!c) return; if (c.classList.contains('hidden')) { c.classList.remove('hidden'); i.innerText = '▲'; smetaToggledMonths[key] = true; } else { c.classList.add('hidden'); i.innerText = '▼'; smetaToggledMonths[key] = false; } };
-    window.toggleSmetaDay = function(date) { let safeId = date.replace(/\./g, '_'); let c = document.getElementById('smeta-day-content-' + safeId); let i = document.getElementById('smeta-day-icon-' + safeId); if (!c) return; if (c.classList.contains('hidden')) { c.classList.remove('hidden'); i.innerText = '▲'; smetaToggledDays[date] = true; } else { c.classList.add('hidden'); i.innerText = '▼'; smetaToggledDays[date] = false; } };
-    function renderEstimate() {
-        const listDiv = document.getElementById('estimate-list'); const totalRow = document.getElementById('total-row'); const totalSumSpan = document.getElementById('total-sum'); const exportButtons = document.getElementById('export-buttons');
-        if (currentEstimate.length === 0) { listDiv.innerHTML = '<p style="color: #666; font-size: 14px; text-align: center;">Смета пока пуста</p>'; totalRow.style.display = 'none'; exportButtons.style.display = 'none'; return; }
-        let tree = {}; let grandTotal = 0;
-        currentEstimate.forEach(item => { let parts = item.date.split('.'); let year = parts[2]; let month = parts[1]; if (!tree[year]) tree[year] = {}; if (!tree[year][month]) tree[year][month] = {}; if (!tree[year][month][item.date]) tree[year][month][item.date] = []; tree[year][month][item.date].push(item); grandTotal += item.total; });
-        let sortedYears = Object.keys(tree).sort((a, b) => parseInt(b) - parseInt(a)); let fullHtml = '';
-        sortedYears.forEach(year => {
-            let yearExp = smetaToggledYears[year] !== undefined ? smetaToggledYears[year] : (year === getTodayParts().year); let yearTotal = 0;
-            Object.values(tree[year]).forEach(m => Object.values(m).forEach(d => d.forEach(i => yearTotal += i.total)));
-            fullHtml += `<div class="year-group" style="margin-bottom: 15px;"><div class="year-header" onclick="toggleSmetaYear('${year}')" style="background: linear-gradient(135deg, #1a2a33, #0d1a20); padding: 15px 18px; border-radius: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 17px; font-weight: bold; color: #00c2ff; border: 1px solid #00c2ff;"><span>📅 ${year} год</span><span style="display: flex; gap: 12px; align-items: center;"><span style="color: #00ff88; font-size: 15px;">${yearTotal.toLocaleString('ru-RU')} ₽</span><span id="smeta-year-icon-${year}">${yearExp ? '▲' : '▼'}</span></span></div><div id="smeta-year-content-${year}" class="${yearExp ? '' : 'hidden'}" style="margin-top: 10px; padding-left: 12px; border-left: 2px solid #00c2ff;">`;
-            let sortedMonths = Object.keys(tree[year]).sort((a, b) => parseInt(b) - parseInt(a));
-            sortedMonths.forEach(month => {
-                let key = year + '-' + month; let monthExp = smetaToggledMonths[key] !== undefined ? smetaToggledMonths[key] : (key === getTodayParts().year + '-' + getTodayParts().month); let monthTotal = 0;
-                Object.values(tree[year][month]).forEach(d => d.forEach(i => monthTotal += i.total));
-                fullHtml += `<div class="month-group" style="margin-bottom: 12px;"><div class="month-header" onclick="toggleSmetaMonth('${year}', '${month}')" style="background: #222; padding: 12px 16px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #fff; border: 1px solid #444;"><span>📆 ${MONTH_NAMES[month]} ${year}</span><span style="display: flex; gap: 12px; align-items: center;"><span style="color: #00ff88; font-size: 14px;">${monthTotal.toLocaleString('ru-RU')} ₽</span><span id="smeta-month-icon-${key}">${monthExp ? '▲' : '▼'}</span></span></div><div id="smeta-month-content-${key}" class="${monthExp ? '' : 'hidden'}" style="margin-top: 8px; padding-left: 12px; border-left: 2px solid #444;">`;
-                let sortedDays = Object.keys(tree[year][month]).sort((a, b) => parseInt(b.split('.')[0]) - parseInt(a.split('.')[0]));
-                sortedDays.forEach(date => {
-                    let dayExp = smetaToggledDays[date] !== undefined ? smetaToggledDays[date] : false; let items = tree[year][month][date]; let dayTotal = 0; items.forEach(i => dayTotal += i.total); let safeId = date.replace(/\./g, '_');
-                    fullHtml += `<div class="day-group" style="margin-bottom: 8px;"><div class="day-header" onclick="toggleSmetaDay('${date}')" style="background: #1f1f1f; padding: 10px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #ccc; border-radius: 6px; border: 1px solid #333;"><span>📅 ${date}</span><span style="display: flex; gap: 12px; align-items: center;"><span style="color: #00ff88; font-size: 13px;">${dayTotal.toLocaleString('ru-RU')} ₽</span><span id="smeta-day-icon-${safeId}">${dayExp ? '▲' : '▼'}</span></span></div><div id="smeta-day-content-${safeId}" class="${dayExp ? '' : 'hidden'}" style="background: #111; padding: 0 12px; border-radius: 0 0 6px 6px;">`;
-                    [...items].sort((a, b) => b.id - a.id).forEach(item => { fullHtml += `<div class="estimate-item"><div class="item-info"><div class="item-name">${item.name}</div><div class="item-details">${item.qty} ${item.unit} × ${item.price} ₽</div></div><div style="display:flex; align-items:center;"><div class="item-total">${item.total.toLocaleString('ru-RU')} ₽</div><button class="delete-item-btn" onclick="deleteEstimateItem(${item.id})">✕</button></div></div>`; });
-                    fullHtml += `</div></div>`;
-                });
-                fullHtml += `</div></div>`;
-            });
-            fullHtml += `</div></div>`;
-        });
-        listDiv.innerHTML = fullHtml; totalRow.style.display = 'flex'; totalSumSpan.innerText = grandTotal.toLocaleString('ru-RU') + ' ₽'; exportButtons.style.display = 'flex';
-    }
-    function addToEstimate() {
-        const name = document.getElementById('work-name').value; const qty = parseFloat(document.getElementById('work-qty').value); const unit = document.getElementById('work-unit').value; const price = parseFloat(document.getElementById('work-price').value);
-        if (!name || isNaN(qty) || isNaN(price)) { statusDiv.innerText = "Ошибка: заполните все поля!"; statusDiv.style.color = "red"; return; }
-        let savedPrices = JSON.parse(localStorage.getItem('my_prices')) || {}; savedPrices[name.trim().toLowerCase()] = price; localStorage.setItem('my_prices', JSON.stringify(savedPrices));
-        currentEstimate.push({ id: Date.now(), name, qty, unit, price, total: qty * price, date: new Date().toLocaleDateString('ru-RU') });
-        localStorage.setItem('my_estimate', JSON.stringify(currentEstimate));
-        document.getElementById('work-name').value = ''; document.getElementById('work-qty').value = ''; document.getElementById('work-price').value = '';
-        statusDiv.innerText = "Работа добавлена в смету!"; statusDiv.style.color = "lightgreen"; renderEstimate();
-    }
-    window.deleteEstimateItem = (id) => { currentEstimate = currentEstimate.filter(i => i.id !== id); localStorage.setItem('my_estimate', JSON.stringify(currentEstimate)); renderEstimate(); };
-    document.getElementById('add-btn').addEventListener('click', addToEstimate);
-
-    let financeData = JSON.parse(localStorage.getItem('my_finance')) || [];
-    window.toggleFinYear = function(year) { let c = document.getElementById('fin-year-content-' + year); let i = document.getElementById('fin-year-icon-' + year); if (!c) return; if (c.classList.contains('hidden')) { c.classList.remove('hidden'); i.innerText = '▲'; finToggledYears[year] = true; } else { c.classList.add('hidden'); i.innerText = '▼'; finToggledYears[year] = false; } };
-    window.toggleFinMonth = function(year, month) { let key = year + '-' + month; let c = document.getElementById('fin-month-content-' + key); let i = document.getElementById('fin-month-icon-' + key); if (!c) return; if (c.classList.contains('hidden')) { c.classList.remove('hidden'); i.innerText = '▲'; finToggledMonths[key] = true; } else { c.classList.add('hidden'); i.innerText = '▼'; finToggledMonths[key] = false; } };
-    window.toggleFinDay = function(date) { let safeId = date.replace(/\./g, '_'); let c = document.getElementById('fin-day-content-' + safeId); let i = document.getElementById('fin-day-icon-' + safeId); if (!c) return; if (c.classList.contains('hidden')) { c.classList.remove('hidden'); i.innerText = '▲'; finToggledDays[date] = true; } else { c.classList.add('hidden'); i.innerText = '▼'; finToggledDays[date] = false; } };
-    function renderFinance() {
-        const listDiv = document.getElementById('finance-list'); const balanceSpan = document.getElementById('finance-balance-sum');
-        if (financeData.length === 0) { listDiv.innerHTML = '<p style="color: #666; font-size: 14px; text-align: center;">Записей пока нет</p>'; balanceSpan.innerText = '0 ₽'; return; }
-        let balance = 0; let tree = {};
-        financeData.forEach(item => { if (!item.date || !item.date.includes('.')) return; let p = item.date.split('.'); let year = p[2]; let month = p[1]; if (!tree[year]) tree[year] = {}; if (!tree[year][month]) tree[year][month] = {}; if (!tree[year][month][item.date]) tree[year][month][item.date] = []; tree[year][month][item.date].push(item); balance += item.type === 'income' ? item.amount : -item.amount; });
-        let sortedYears = Object.keys(tree).sort((a, b) => parseInt(b) - parseInt(a)); let fullHtml = '';
-        sortedYears.forEach(year => {
-            let yearExp = finToggledYears[year] !== undefined ? finToggledYears[year] : (year === getTodayParts().year); let yearTotal = 0;
-            Object.values(tree[year]).forEach(m => Object.values(m).forEach(d => d.forEach(i => yearTotal += i.type === 'income' ? i.amount : -i.amount)));
-            let yColor = yearTotal >= 0 ? '#00ff88' : '#ff4444'; let ySign = yearTotal > 0 ? '+' : '';
-            fullHtml += `<div class="year-group" style="margin-bottom: 15px;"><div class="year-header" onclick="toggleFinYear('${year}')" style="background: linear-gradient(135deg, #1a2a33, #0d1a20); padding: 15px 18px; border-radius: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 17px; font-weight: bold; color: #00c2ff; border: 1px solid #00c2ff;"><span>📅 ${year} год</span><span style="display: flex; gap: 12px; align-items: center;"><span style="color: ${yColor}; font-size: 15px;">${ySign}${yearTotal.toLocaleString('ru-RU')} ₽</span><span id="fin-year-icon-${year}">${yearExp ? '▲' : '▼'}</span></span></div><div id="fin-year-content-${year}" class="${yearExp ? '' : 'hidden'}" style="margin-top: 10px; padding-left: 12px; border-left: 2px solid #00c2ff;">`;
-            let sortedMonths = Object.keys(tree[year]).sort((a, b) => parseInt(b) - parseInt(a));
-            sortedMonths.forEach(month => {
-                let key = year + '-' + month; let monthExp = finToggledMonths[key] !== undefined ? finToggledMonths[key] : (key === getTodayParts().year + '-' + getTodayParts().month); let monthTotal = 0;
-                Object.values(tree[year][month]).forEach(d => d.forEach(i => monthTotal += i.type === 'income' ? i.amount : -i.amount));
-                let mColor = monthTotal >= 0 ? '#00ff88' : '#ff4444'; let mSign = monthTotal > 0 ? '+' : '';
-                fullHtml += `<div class="month-group" style="margin-bottom: 12px;"><div class="month-header" onclick="toggleFinMonth('${year}', '${month}')" style="background: #222; padding: 12px 16px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #fff; border: 1px solid #444;"><span>📆 ${MONTH_NAMES[month]} ${year}</span><span style="display: flex; gap: 12px; align-items: center;"><span style="color: ${mColor}; font-size: 14px;">${mSign}${monthTotal.toLocaleString('ru-RU')} ₽</span><span id="fin-month-icon-${key}">${monthExp ? '▲' : '▼'}</span></span></div><div id="fin-month-content-${key}" class="${monthExp ? '' : 'hidden'}" style="margin-top: 8px; padding-left: 12px; border-left: 2px solid #444;">`;
-                let sortedDays = Object.keys(tree[year][month]).sort((a, b) => parseInt(b.split('.')[0]) - parseInt(a.split('.')[0]));
-                sortedDays.forEach(date => {
-                    let dayExp = finToggledDays[date] !== undefined ? finToggledDays[date] : false; let items = tree[year][month][date]; let dayTotal = 0; items.forEach(i => dayTotal += i.type === 'income' ? i.amount : -i.amount);
-                    let dColor = dayTotal >= 0 ? '#00ff88' : '#ff4444'; let dSign = dayTotal > 0 ? '+' : ''; let safeId = date.replace(/\./g, '_');
-                    fullHtml += `<div class="day-group" style="margin-bottom: 8px;"><div class="day-header" onclick="toggleFinDay('${date}')" style="background: #1f1f1f; padding: 10px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #ccc; border-radius: 6px; border: 1px solid #333;"><span>📅 ${date}</span><span style="display: flex; gap: 12px; align-items: center;"><span style="color: ${dColor}; font-size: 13px;">${dSign}${dayTotal.toLocaleString('ru-RU')} ₽</span><span id="fin-day-icon-${safeId}">${dayExp ? '▲' : '▼'}</span></span></div><div id="fin-day-content-${safeId}" class="${dayExp ? '' : 'hidden'}" style="background: #111; padding: 0 12px; border-radius: 0 0 6px 6px;">`;
-                    [...items].sort((a, b) => b.id - a.id).forEach(item => { const isInc = item.type === 'income'; const s = isInc ? '+' : '-'; const c = isInc ? 'type-income' : 'type-expense'; fullHtml += `<div class="finance-item"><div class="finance-info"><div class="finance-name">${item.category}</div><div class="finance-type ${c}">${isInc ? 'Приход' : 'Расход'}</div></div><div style="display:flex; align-items:center;"><div class="finance-amount ${c}">${s}${item.amount.toLocaleString('ru-RU')} ₽</div><button class="delete-item-btn" onclick="deleteFinance(${item.id})">✕</button></div></div>`; });
-                    fullHtml += `</div></div>`;
-                });
-                fullHtml += `</div></div>`;
-            });
-            fullHtml += `</div></div>`;
-        });
-        listDiv.innerHTML = fullHtml; const bColor = balance >= 0 ? '#00ff88' : '#ff4444'; balanceSpan.style.color = bColor; balanceSpan.innerText = balance.toLocaleString('ru-RU') + ' ₽';
-    }
-    window.deleteFinance = (id) => { financeData = financeData.filter(i => i.id !== id); localStorage.setItem('my_finance', JSON.stringify(financeData)); renderFinance(); };
-    window.clearAllFinance = () => { if (confirm("Удалить ВСЕ финансовые записи?")) { financeData = []; localStorage.setItem('my_finance', JSON.stringify(financeData)); finToggledYears = {}; finToggledMonths = {}; finToggledDays = {}; renderFinance(); } };
-
-    let diaryData = JSON.parse(localStorage.getItem('my_diary')) || [];
-    window.toggleDiaryYear = function(year) { let c = document.getElementById('diary-year-content-' + year); let i = document.getElementById('diary-year-icon-' + year); if (!c) return; if (c.classList.contains('hidden')) { c.classList.remove('hidden'); i.innerText = '▲'; diaryToggledYears[year] = true; } else { c.classList.add('hidden'); i.innerText = '▼'; diaryToggledYears[year] = false; } };
-    window.toggleDiaryMonth = function(year, month) { let key = year + '-' + month; let c = document.getElementById('diary-month-content-' + key); let i = document.getElementById('diary-month-icon-' + key); if (!c) return; if (c.classList.contains('hidden')) { c.classList.remove('hidden'); i.innerText = '▲'; diaryToggledMonths[key] = true; } else { c.classList.add('hidden'); i.innerText = '▼'; diaryToggledMonths[key] = false; } };
-    window.toggleDiaryDay = function(date) { let safeId = date.replace(/\./g, '_'); let c = document.getElementById('diary-day-content-' + safeId); let i = document.getElementById('diary-day-icon-' + safeId); if (!c) return; if (c.classList.contains('hidden')) { c.classList.remove('hidden'); i.innerText = '▲'; diaryToggledDays[date] = true; } else { c.classList.add('hidden'); i.innerText = '▼'; diaryToggledDays[date] = false; } };
-    function renderDiary() {
-        const listDiv = document.getElementById('diary-list');
-        if (diaryData.length === 0) { listDiv.innerHTML = '<p style="color: #666; font-size: 14px; text-align: center;">Записей пока нет</p>'; return; }
-        let tree = {}; diaryData.forEach(item => { if (!item.date || !item.date.includes('.')) return; let p = item.date.split('.'); let year = p[2]; let month = p[1]; if (!tree[year]) tree[year] = {}; if (!tree[year][month]) tree[year][month] = {}; if (!tree[year][month][item.date]) tree[year][month][item.date] = []; tree[year][month][item.date].push(item); });
-        let sortedYears = Object.keys(tree).sort((a, b) => parseInt(b) - parseInt(a)); let fullHtml = '';
-        sortedYears.forEach(year => {
-            let yearExp = diaryToggledYears[year] !== undefined ? diaryToggledYears[year] : (year === getTodayParts().year); let yearCount = 0; Object.values(tree[year]).forEach(m => Object.values(m).forEach(d => d.forEach(i => yearCount++)));
-            fullHtml += `<div class="year-group" style="margin-bottom: 15px;"><div class="year-header" onclick="toggleDiaryYear('${year}')" style="background: linear-gradient(135deg, #1a2a33, #0d1a20); padding: 15px 18px; border-radius: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 17px; font-weight: bold; color: #00c2ff; border: 1px solid #00c2ff;"><span>📅 ${year} год</span><span style="display: flex; gap: 12px; align-items: center;"><span style="color: #00c2ff; font-size: 14px;">${yearCount} зап.</span><span id="diary-year-icon-${year}">${yearExp ? '▲' : '▼'}</span></span></div><div id="diary-year-content-${year}" class="${yearExp ? '' : 'hidden'}" style="margin-top: 10px; padding-left: 12px; border-left: 2px solid #00c2ff;">`;
-            let sortedMonths = Object.keys(tree[year]).sort((a, b) => parseInt(b) - parseInt(a));
-            sortedMonths.forEach(month => {
-                let key = year + '-' + month; let monthExp = diaryToggledMonths[key] !== undefined ? diaryToggledMonths[key] : (key === getTodayParts().year + '-' + getTodayParts().month); let monthCount = 0; Object.values(tree[year][month]).forEach(d => d.forEach(i => monthCount++));
-                fullHtml += `<div class="month-group" style="margin-bottom: 12px;"><div class="month-header" onclick="toggleDiaryMonth('${year}', '${month}')" style="background: #222; padding: 12px 16px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #fff; border: 1px solid #444;"><span>📆 ${MONTH_NAMES[month]} ${year}</span><span style="display: flex; gap: 12px; align-items: center;"><span style="color: #00c2ff; font-size: 14px;">${monthCount} зап.</span><span id="diary-month-icon-${key}">${monthExp ? '▲' : '▼'}</span></span></div><div id="diary-month-content-${key}" class="${monthExp ? '' : 'hidden'}" style="margin-top: 8px; padding-left: 12px; border-left: 2px solid #444;">`;
-                let sortedDays = Object.keys(tree[year][month]).sort((a, b) => parseInt(b.split('.')[0]) - parseInt(a.split('.')[0]));
-                sortedDays.forEach(date => {
-                    let dayExp = diaryToggledDays[date] !== undefined ? diaryToggledDays[date] : false; let items = tree[year][month][date]; let safeId = date.replace(/\./g, '_');
-                    fullHtml += `<div class="day-group" style="margin-bottom: 8px;"><div class="day-header" onclick="toggleDiaryDay('${date}')" style="background: #1f1f1f; padding: 10px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #ccc; border-radius: 6px; border: 1px solid #333;"><span>📅 ${date}</span><span style="display: flex; gap: 12px; align-items: center;"><span style="color: #00c2ff; font-size: 13px;">${items.length} зап.</span><span id="diary-day-icon-${safeId}">${dayExp ? '▲' : '▼'}</span></span></div><div id="diary-day-content-${safeId}" class="${dayExp ? '' : 'hidden'}" style="background: #111; padding: 0 12px; border-radius: 0 0 6px 6px;">`;
-                    [...items].sort((a, b) => b.id - a.id).forEach(item => { fullHtml += `<div class="diary-item"><div class="diary-info"><div class="diary-text">${item.text}</div><div class="diary-time">${item.time}</div></div><button class="delete-item-btn" onclick="deleteDiary(${item.id})">✕</button></div>`; });
-                    fullHtml += `</div></div>`;
-                });
-                fullHtml += `</div></div>`;
-            });
-            fullHtml += `</div></div>`;
-        });
-        listDiv.innerHTML = fullHtml;
-    }
-    document.getElementById('add-diary-btn').addEventListener('click', () => { const val = document.getElementById('diary-input').value.trim(); if (!val) return; const now = new Date(); diaryData.push({ id: Date.now(), text: val, date: now.toLocaleDateString('ru-RU'), time: now.toLocaleTimeString('ru-RU', {hour: '2-digit', minute:'2-digit'}) }); localStorage.setItem('my_diary', JSON.stringify(diaryData)); document.getElementById('diary-input').value = ''; renderDiary(); });
-    window.deleteDiary = (id) => { diaryData = diaryData.filter(i => i.id !== id); localStorage.setItem('my_diary', JSON.stringify(diaryData)); renderDiary(); };
-    window.clearAllDiary = () => { if (confirm("Удалить ВСЕ записи дневника?")) { diaryData = []; localStorage.setItem('my_diary', JSON.stringify(diaryData)); diaryToggledYears = {}; diaryToggledMonths = {}; diaryToggledDays = {}; renderDiary(); } };
-
-    let remindersData = JSON.parse(localStorage.getItem('my_reminders')) || [];
-    function renderReminders() {
-        const listDiv = document.getElementById('reminders-list');
-        let active = remindersData.filter(r => r.time > Date.now()).sort((a,b) => a.time - b.time); let past = remindersData.filter(r => r.time <= Date.now()).sort((a,b) => b.time - a.time);
-        if (active.length === 0 && past.length === 0) { listDiv.innerHTML = '<p style="color: #666; font-size: 14px; text-align: center;">Нет напоминаний</p>'; return; }
-        let html = '';
-        if (active.length > 0) { html += '<h4 style="color: #00c2ff; margin-bottom: 10px;">Активные:</h4>'; active.forEach(r => { html += `<div class="reminder-item"><div class="reminder-info"><div class="reminder-text">${r.text}</div><div class="reminder-time">⏰ ${r.dateStr}</div></div><button class="delete-item-btn" onclick="deleteReminder(${r.id})">✕</button></div>`; }); }
-        if (past.length > 0) { html += '<h4 style="color: #666; margin-top: 20px; margin-bottom: 10px;">Прошедшие:</h4>'; past.forEach(r => { html += `<div class="reminder-item" style="opacity: 0.5;"><div class="reminder-info"><div class="reminder-text">${r.text}</div><div class="reminder-time">⏰ ${r.dateStr}</div></div><button class="delete-item-btn" onclick="deleteReminder(${r.id})">✕</button></div>`; }); }
-        listDiv.innerHTML = html;
-    }
-    window.deleteReminder = (id) => { remindersData = remindersData.filter(r => r.id !== id); localStorage.setItem('my_reminders', JSON.stringify(remindersData)); renderReminders(); };
-    window.clearAllReminders = () => { if (confirm("Удалить все напоминания?")) { remindersData = []; localStorage.setItem('my_reminders', JSON.stringify(remindersData)); renderReminders(); } };
-
-    let warehouseData = JSON.parse(localStorage.getItem('my_warehouse')) || [];
-    document.getElementById('add-wh-btn').addEventListener('click', () => {
-        const name = document.getElementById('wh-name').value; const qty = parseFloat(document.getElementById('wh-qty').value); const unit = document.getElementById('wh-unit').value; const price = parseFloat(document.getElementById('wh-price').value) || 0;
-        if (!name || isNaN(qty)) { alert("Заполните название и количество!"); return; }
-        warehouseData.push({ id: Date.now(), name, qty, unit, price });
-        localStorage.setItem('my_warehouse', JSON.stringify(warehouseData));
-        document.getElementById('wh-name').value = ''; document.getElementById('wh-qty').value = ''; document.getElementById('wh-price').value = '';
-        renderWarehouse();
-    });
-    function renderWarehouse() {
-        const listDiv = document.getElementById('warehouse-list');
-        if (warehouseData.length === 0) { listDiv.innerHTML = '<p style="color: #666; font-size: 14px; text-align: center;">Склад пуст</p>'; return; }
-        let html = '';
-        warehouseData.sort((a,b) => b.id - a.id).forEach(item => { html += `<div class="warehouse-item"><div class="warehouse-info"><div class="warehouse-name">${item.name}</div><div class="warehouse-details">Остаток: ${item.qty} ${item.unit} • Цена: ${item.price} ₽</div></div><button class="delete-item-btn" onclick="deleteWarehouseItem(${item.id})">✕</button></div>`; });
-        listDiv.innerHTML = html;
-    }
-    window.deleteWarehouseItem = (id) => { warehouseData = warehouseData.filter(i => i.id !== id); localStorage.setItem('my_warehouse', JSON.stringify(warehouseData)); renderWarehouse(); };
-
-    // PDF
-    function createPdfHtml() {
-        const dateStr = new Date().toLocaleDateString('ru-RU'); const docNumber = Math.floor(Date.now() / 1000).toString().slice(-4);
-        let rowsHtml = ''; let total = 0;
-        currentEstimate.forEach((item, index) => { total += item.total; rowsHtml += `<tr><td style="border: 1px solid #000; padding: 10px; text-align: center;">${index + 1}</td><td style="border: 1px solid #000; padding: 10px;">${item.name}</td><td style="border: 1px solid #000; padding: 10px; text-align: center;">${item.unit}</td><td style="border: 1px solid #000; padding: 10px; text-align: right;">${item.qty}</td><td style="border: 1px solid #000; padding: 10px; text-align: right;">${item.price.toLocaleString('ru-RU')} ₽</td><td style="border: 1px solid #000; padding: 10px; text-align: right; font-weight: bold;">${item.total.toLocaleString('ru-RU')} ₽</td></tr>`; });
-        const savedLogo = localStorage.getItem('my_logo'); let logoHtml = savedLogo ? `<img src="${savedLogo}" style="max-height: 80px; max-width: 150px; object-fit: contain; margin-bottom: 10px;">` : '';
-        return `<div style="font-family: 'Times New Roman', Times, serif; color: #000; background: #fff; padding: 40px; width: 800px;"><div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px;"><div><h1 style="margin: 0; font-size: 28px; text-transform: uppercase;">Смета на работы</h1><p style="margin: 5px 0 0 0; font-size: 14px; color: #555;">№ ${docNumber} от ${dateStr} (Объект: ${currentObject})</p></div><div style="text-align: right;">${logoHtml}<p style="margin: 0; font-size: 14px;"><b>Исполнитель:</b> Прораб</p><p style="margin: 5px 0 0 0; font-size: 14px;">Сформировано в приложении «ALVENIMA»</p></div></div><table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 20px;"><thead><tr style="background: #eee;"><th style="border: 1px solid #000; padding: 10px;">№</th><th style="border: 1px solid #000; padding: 10px; text-align: left;">Наименование работ</th><th style="border: 1px solid #000; padding: 10px;">Ед. изм.</th><th style="border: 1px solid #000; padding: 10px;">Кол-во</th><th style="border: 1px solid #000; padding: 10px;">Цена за ед.</th><th style="border: 1px solid #000; padding: 10px;">Сумма</th></tr></thead><tbody>${rowsHtml}</tbody></table><div style="text-align: right; margin-bottom: 50px;"><h2 style="margin: 0; font-size: 20px; border-bottom: 2px solid #000; display: inline-block; padding-bottom: 5px;">ИТОГО: ${total.toLocaleString('ru-RU')} ₽</h2></div><div style="display: flex; justify-content: space-between; margin-top: 50px; font-size: 14px;"><div style="width: 45%;"><p style="margin: 0 0 20px 0;"><b>Заказчик:</b></p><div style="border-bottom: 1px solid #000; width: 100%; margin-bottom: 5px;"></div><p style="margin: 0; font-size: 12px; text-align: center; color: #555;">(подпись)</p></div><div style="width: 45%;"><p style="margin: 0 0 20px 0;"><b>Исполнитель:</b></p><div style="border-bottom: 1px solid #000; width: 100%; margin-bottom: 5px;"></div><p style="margin: 0; font-size: 12px; text-align: center; color: #555;">(подпись)</p></div></div></div>`;
-    }
-
-    window.downloadPDF = async () => {
-        const { jsPDF } = window.jspdf; const doc = new jsPDF('p', 'mm', 'a4');
-        const tempDiv = document.createElement('div'); tempDiv.style.position = 'absolute'; tempDiv.style.left = '-9999px'; tempDiv.innerHTML = createPdfHtml(); document.body.appendChild(tempDiv);
-        const canvas = await html2canvas(tempDiv, { scale: 3, backgroundColor: '#ffffff' }); document.body.removeChild(tempDiv);
-        const imgData = canvas.toDataURL('image/jpeg', 1.0); const pdfWidth = doc.internal.pageSize.getWidth(); const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-        doc.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
-        const pdfBase64 = doc.output('datauristring'); if (window.AndroidApp) { window.AndroidApp.savePdf(pdfBase64); } else { doc.save(`Смета_${new Date().getTime()}.pdf`); }
-    };
-
-    window.shareEstimate = async () => {
-        const { jsPDF } = window.jspdf; const doc = new jsPDF('p', 'mm', 'a4');
-        const tempDiv = document.createElement('div'); tempDiv.style.position = 'absolute'; tempDiv.style.left = '-9999px'; tempDiv.innerHTML = createPdfHtml(); document.body.appendChild(tempDiv);
-        const canvas = await html2canvas(tempDiv, { scale: 3, backgroundColor: '#ffffff' }); document.body.removeChild(tempDiv);
-        const imgData = canvas.toDataURL('image/jpeg', 1.0); const pdfWidth = doc.internal.pageSize.getWidth(); const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-        doc.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
-        const pdfBase64 = doc.output('datauristring'); if (window.AndroidApp) { window.AndroidApp.sharePdf(pdfBase64); } else { alert("Отправка файлов доступна только в приложении."); }
-    };
-
-    // НОВЫЕ ФУНКЦИИ ДЛЯ МОДАЛЬНОГО ОКНА ОБЪЕКТОВ
-    window.openObjectModal = function() {
-        renderSplash(); // Обновляем список перед показом
-        document.getElementById('object-modal').classList.add('show');
-    };
-
-    window.closeObjectModal = function() {
-        document.getElementById('object-modal').classList.remove('show');
-    };
-
-    // Инициализация
-    renderSplash();
-
-    // СРАЗУ запускаем таймер скрытия заставки (до вызова функций рендера)
-    setTimeout(() => {
-        let splash = document.getElementById('view-splash');
-        if (splash) splash.style.display = 'none';
-        switchView('objects'); // <-- Сразу после заставки открываем выбор объектов
-    }, 4500);
-
-    // А теперь загружаем данные (если тут будет ошибка, экран уже переключится)
-    updateLogoPreview(); renderEstimate(); renderFinance(); renderDiary(); renderReminders(); renderWarehouse();
-</script>
+<!-- ================= ПОДКЛЮЧЕНИЕ ЛОГИКИ ================= -->
+<script src="app.js"></script>
 
 </body>
 </html>
