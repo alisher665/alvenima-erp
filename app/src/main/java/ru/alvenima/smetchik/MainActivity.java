@@ -144,6 +144,9 @@ public class MainActivity extends AppCompatActivity {
         webSettings.setJavaScriptEnabled(true);
         webSettings.setDomStorageEnabled(true);
         webSettings.setAllowFileAccess(true);
+        webSettings.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        webSettings.setDatabaseEnabled(true);
+        webView.clearCache(true);
 
         webView.addJavascriptInterface(new WebAppInterface(), "AndroidApp");
 
@@ -214,6 +217,57 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public class WebAppInterface {
+
+        @JavascriptInterface
+        public void saveBackupToDownloads(String jsonData, String fileName) {
+            try {
+                byte[] bytes = jsonData.getBytes("UTF-8");
+                String savedPath = "";
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ContentValues values = new ContentValues();
+                    values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
+                    values.put(MediaStore.MediaColumns.MIME_TYPE, "application/json");
+                    values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                    Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                    if (uri == null) { notifyBackupResult(false, "Не удалось создать файл"); return; }
+                    try (OutputStream outputStream = getContentResolver().openOutputStream(uri)) {
+                        if (outputStream == null) { notifyBackupResult(false, "Поток пуст"); return; }
+                        outputStream.write(bytes);
+                        outputStream.flush();
+                    }
+                    savedPath = "Загрузки/" + fileName;
+                } else {
+                    File downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                    if (!downloads.exists()) downloads.mkdirs();
+                    File file = new File(downloads, fileName);
+                    try (FileOutputStream fos = new FileOutputStream(file)) {
+                        fos.write(bytes);
+                        fos.flush();
+                    }
+                    android.media.MediaScannerConnection.scanFile(
+                            MainActivity.this, new String[]{file.getAbsolutePath()},
+                            new String[]{"application/json"}, null);
+                    savedPath = file.getAbsolutePath();
+                }
+                notifyBackupResult(true, savedPath);
+            } catch (Exception e) {
+                Log.e(TAG, "saveBackupToDownloads error", e);
+                notifyBackupResult(false, e.getMessage());
+            }
+        }
+
+        private void notifyBackupResult(boolean ok, String info) {
+            final String msg = ok ? ("Бэкап сохранён: " + info) : ("Ошибка бэкапа: " + info);
+            showToast(msg);
+            runOnUiThread(() -> {
+                if (webView != null) {
+                    webView.evaluateJavascript(
+                            "if (window.onBackupSaved) window.onBackupSaved(" + ok + ", " + JSONObject.quote(info) + ");",
+                            null);
+                }
+            });
+        }
 
         @JavascriptInterface
         public void setAlarm(long timestamp, String text) {
@@ -490,7 +544,12 @@ public class MainActivity extends AppCompatActivity {
                 if (filePath.endsWith(".jpg") || filePath.endsWith(".jpeg")) mimeType = "image/jpeg";
                 if (filePath.endsWith(".svg")) mimeType = "image/svg+xml";
 
-                String header = "HTTP/1.1 200 OK\r\nContent-Type: " + mimeType + "\r\nConnection: close\r\n\r\n";
+                String header = "HTTP/1.1 200 OK\r\n"
+                        + "Content-Type: " + mimeType + "\r\n"
+                        + "Cache-Control: no-cache, no-store, must-revalidate\r\n"
+                        + "Pragma: no-cache\r\n"
+                        + "Expires: 0\r\n"
+                        + "Connection: close\r\n\r\n";
                 output.write(header.getBytes());
                 output.write(fileBytes);
             } catch (IOException e) {

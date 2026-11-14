@@ -1,5 +1,6 @@
 const statusDiv = document.getElementById('status');
 let isRecording = false;
+let openTodayAfterRender = false;
 let currentMicMode = 'splash';
 let awaitingConfirm = false;
 let pendingDeleteAction = null;
@@ -47,16 +48,63 @@ function loadSettingsUI() {
 }
 
 window.exportData = function() {
+    // Собираем все ключи localStorage
     let backupData = {};
     for (let i = 0; i < localStorage.length; i++) {
         let key = localStorage.key(i);
         backupData[key] = localStorage.getItem(key);
     }
-    let dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData));
-    let dlAnchorElem = document.createElement('a');
-    dlAnchorElem.setAttribute("href", dataStr);
-    dlAnchorElem.setAttribute("download", "ALVENIMA_BACKUP_" + new Date().toLocaleDateString('ru-RU') + ".json");
-    dlAnchorElem.click();
+    let jsonStr = JSON.stringify(backupData, null, 2);
+
+    // Безопасное имя файла (без точек в дате)
+    let d = new Date();
+    let pad = n => (n < 10 ? '0' + n : '' + n);
+    let stamp = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+              + '_' + pad(d.getHours()) + '-' + pad(d.getMinutes()) + '-' + pad(d.getSeconds());
+    let fileName = "ALVENIMA_BACKUP_" + stamp + ".json";
+
+    statusDiv.innerText = "⏳ Сохраняю бэкап...";
+    statusDiv.style.color = "#00c2ff";
+
+    if (window.AndroidApp && window.AndroidApp.saveBackupToDownloads) {
+        try {
+            window.AndroidApp.saveBackupToDownloads(jsonStr, fileName);
+            // Результат придёт в onBackupSaved
+        } catch (e) {
+            statusDiv.innerText = "❌ Ошибка вызова Java: " + e.message;
+            statusDiv.style.color = "#ff4444";
+        }
+    } else {
+        // Фолбэк для теста в обычном браузере
+        try {
+            let blob = new Blob([jsonStr], { type: 'application/json' });
+            let url = URL.createObjectURL(blob);
+            let a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 2000);
+            statusDiv.innerText = "✅ Бэкап сохранён (браузер): " + fileName;
+            statusDiv.style.color = "#00ff88";
+        } catch (e) {
+            statusDiv.innerText = "❌ Ошибка бэкапа: " + e.message;
+            statusDiv.style.color = "#ff4444";
+        }
+    }
+};
+
+// Колбэк из Java после сохранения бэкапа
+window.onBackupSaved = function(ok, info) {
+    if (ok) {
+        statusDiv.innerText = "✅ " + info;
+        statusDiv.style.color = "#00ff88";
+    } else {
+        statusDiv.innerText = "❌ " + info;
+        statusDiv.style.color = "#ff4444";
+    }
+    setTimeout(() => { statusDiv.innerText = ''; statusDiv.style.color = ''; }, 5000);
 };
 
 window.clearAllAppData = function() {
@@ -463,6 +511,7 @@ function parseFinanceVoice(lower) {
         if (!categoryEl.value.trim() || !parseFloat(amountEl.value)) { speak("Поля пустые"); return; }
         financeData.push({ id: Date.now(), type: typeEl.value, category: categoryEl.value, amount: parseFloat(amountEl.value), date: new Date().toLocaleDateString('ru-RU') });
         localStorage.setItem(getStorageKey('finance'), JSON.stringify(financeData));
+        openTodayAfterRender = true;
         renderFinance(); categoryEl.value = ''; amountEl.value = '';
         statusDiv.innerText = "✅ Сохранено!"; speak("Сохранено"); return;
     }
@@ -488,6 +537,7 @@ function parseFinanceVoice(lower) {
     if (settings.autosave && finalName && amount > 0) {
         financeData.push({ id: Date.now(), type: type, category: finalName.charAt(0).toUpperCase() + finalName.slice(1), amount: amount, date: new Date().toLocaleDateString('ru-RU') });
         localStorage.setItem(getStorageKey('finance'), JSON.stringify(financeData));
+        openTodayAfterRender = true;
         renderFinance();
 
         document.getElementById('fin-category').value = '';
@@ -507,7 +557,7 @@ function parseDiaryVoice(lower) {
     if ((lower.includes('сохрани') || lower.includes('добавь') || lower.includes('запиши') || isAuto) && inputEl.value.trim() !== '') {
         const now = new Date();
         diaryData.push({ id: Date.now(), text: inputEl.value.trim(), date: now.toLocaleDateString('ru-RU'), time: now.toLocaleTimeString('ru-RU', {hour: '2-digit', minute:'2-digit'}) });
-        localStorage.setItem(getStorageKey('diary'), JSON.stringify(diaryData)); renderDiary(); inputEl.value = '';
+        localStorage.setItem(getStorageKey('diary'), JSON.stringify(diaryData)); openTodayAfterRender = true; renderDiary(); inputEl.value = '';
         statusDiv.innerText = "✅ Запись сохранена!"; speak("Сохранено"); return;
     }
     let cleanText = lower.replace(/сохрани|добавь|запиши/g, '').trim();
@@ -718,20 +768,53 @@ function toggleAccordion(id, iconId) {
 }
 
 function renderEstimate() {
-    const listDiv = document.getElementById('estimate-list'); const totalRow = document.getElementById('total-row'); const totalSumSpan = document.getElementById('total-sum'); const exportButtons = document.getElementById('export-buttons');
-    if (currentEstimate.length === 0) { listDiv.innerHTML = '<p style="color: #666; font-size: 14px; text-align: center;">Смета пока пуста</p>'; totalRow.style.display = 'none'; exportButtons.style.display = 'none'; return; }
+    if (openTodayAfterRender) {
+        statusDiv.innerText = "DEBUG(smeta): today=" + getTodayParts().day
+            + " | flag=" + openTodayAfterRender
+            + " | keys=" + Object.keys(currentEstimate.reduce((acc, i) => { acc[i.date] = 1; return acc; }, {})).join(',');
+    }
+    const listDiv = document.getElementById('estimate-list');
+    const totalRow = document.getElementById('total-row');
+    const totalSumSpan = document.getElementById('total-sum');
+    const exportButtons = document.getElementById('export-buttons');
+
+    if (currentEstimate.length === 0) {
+        listDiv.innerHTML = '<p style="color: #666; font-size: 14px; text-align: center;">Смета пока пуста</p>';
+        totalRow.style.display = 'none';
+        exportButtons.style.display = 'none';
+        return;
+    }
+
+    let todayParts = getTodayParts();
+    let todaySafeId = todayParts.day.replace(/\./g, '_');
+    let shouldOpenToday = openTodayAfterRender;
+
     let tree = {}; let grandTotal = 0;
-    currentEstimate.forEach(item => { let parts = item.date.split('.'); let year = parts[2]; let month = parts[1]; if (!tree[year]) tree[year] = {}; if (!tree[year][month]) tree[year][month] = {}; if (!tree[year][month][item.date]) tree[year][month][item.date] = []; tree[year][month][item.date].push(item); grandTotal += item.total; });
-    let sortedYears = Object.keys(tree).sort((a, b) => parseInt(b) - parseInt(a)); let fullHtml = '';
+    currentEstimate.forEach(item => {
+        let parts = item.date.split('.');
+        let year = parts[2];
+        let month = parts[1];
+        if (!tree[year]) tree[year] = {};
+        if (!tree[year][month]) tree[year][month] = {};
+        if (!tree[year][month][item.date]) tree[year][month][item.date] = [];
+        tree[year][month][item.date].push(item);
+        grandTotal += item.total;
+    });
+
+    let sortedYears = Object.keys(tree).sort((a, b) => parseInt(b) - parseInt(a));
+    let fullHtml = '';
+
     sortedYears.forEach(year => {
         let yearExp = false; let yearTotal = 0;
         Object.values(tree[year]).forEach(m => Object.values(m).forEach(d => d.forEach(i => yearTotal += i.total)));
         fullHtml += `<div class="year-group" style="margin-bottom: 15px;"><div class="year-header" onclick="toggleAccordion('smeta-year-content-${year}', 'smeta-year-icon-${year}')" style="background: linear-gradient(135deg, #1a2a33, #0d1a20); padding: 15px 18px; border-radius: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 17px; font-weight: bold; color: #00c2ff; border: 1px solid #00c2ff;"><span>📅 ${year} год</span><span style="display: flex; gap: 12px; align-items: center;"><span style="color: #00ff88; font-size: 15px;">${yearTotal.toLocaleString('ru-RU')} ₽</span><span id="smeta-year-icon-${year}">▼</span></span></div><div id="smeta-year-content-${year}" class="hidden" style="margin-top: 10px; padding-left: 12px; border-left: 2px solid #00c2ff;">`;
+
         let sortedMonths = Object.keys(tree[year]).sort((a, b) => parseInt(b) - parseInt(a));
         sortedMonths.forEach(month => {
             let key = year + '-' + month; let monthExp = false; let monthTotal = 0;
             Object.values(tree[year][month]).forEach(d => d.forEach(i => monthTotal += i.total));
             fullHtml += `<div class="month-group" style="margin-bottom: 12px;"><div class="month-header" onclick="toggleAccordion('smeta-month-content-${key}', 'smeta-month-icon-${key}')" style="background: #222; padding: 12px 16px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #fff; border: 1px solid #444;"><span>📆 ${MONTH_NAMES[month]} ${year}</span><span style="display: flex; gap: 12px; align-items: center;"><span style="color: #00ff88; font-size: 14px;">${monthTotal.toLocaleString('ru-RU')} ₽</span><span id="smeta-month-icon-${key}">▼</span></span></div><div id="smeta-month-content-${key}" class="hidden" style="margin-top: 8px; padding-left: 12px; border-left: 2px solid #444;">`;
+
             let sortedDays = Object.keys(tree[year][month]).sort((a, b) => parseInt(b.split('.')[0]) - parseInt(a.split('.')[0]));
             sortedDays.forEach(date => {
                 let dayExp = false; let items = tree[year][month][date]; let dayTotal = 0; items.forEach(i => dayTotal += i.total); let safeId = date.replace(/\./g, '_');
@@ -743,7 +826,20 @@ function renderEstimate() {
         });
         fullHtml += `</div></div>`;
     });
-    listDiv.innerHTML = fullHtml; totalRow.style.display = 'flex'; totalSumSpan.innerText = grandTotal.toLocaleString('ru-RU') + ' ₽'; exportButtons.style.display = 'flex';
+
+    if (shouldOpenToday) {
+        openTodayAfterRender = false;
+        let todayContainer = `<div id="smeta-day-content-${todaySafeId}" class="hidden"`;
+        if (fullHtml.includes(todayContainer)) {
+            fullHtml = fullHtml.replace(todayContainer, `<div id="smeta-day-content-${todaySafeId}"`);
+            fullHtml = fullHtml.replace(`id="smeta-day-icon-${todaySafeId}">▼`, `id="smeta-day-icon-${todaySafeId}">▲`);
+        }
+    }
+
+    listDiv.innerHTML = fullHtml;
+    totalRow.style.display = 'flex';
+    totalSumSpan.innerText = grandTotal.toLocaleString('ru-RU') + ' ₽';
+    exportButtons.style.display = 'flex';
 }
 
 function addToEstimate() {
@@ -753,6 +849,7 @@ function addToEstimate() {
     currentEstimate.push({ id: Date.now(), name, qty, unit, price, total: qty * price, date: new Date().toLocaleDateString('ru-RU') });
     localStorage.setItem(getStorageKey('estimate'), JSON.stringify(currentEstimate));
     document.getElementById('work-name').value = ''; document.getElementById('work-qty').value = ''; document.getElementById('work-price').value = '';
+    openTodayAfterRender = true;
     renderEstimate();
 }
 window.deleteEstimateItem = (id) => { currentEstimate = currentEstimate.filter(i => i.id !== id); localStorage.setItem(getStorageKey('estimate'), JSON.stringify(currentEstimate)); renderEstimate(); };
@@ -765,17 +862,34 @@ window.addFinanceManual = function() {
     const amount = parseFloat(String(amountRaw).replace(',', '.'));
     if (!category || isNaN(amount) || amount <= 0) { alert("Заполните название и сумму!"); return; }
     financeData.push({ id: Date.now(), type: type, category: category.charAt(0).toUpperCase() + category.slice(1), amount: amount, date: new Date().toLocaleDateString('ru-RU') });
-    localStorage.setItem(getStorageKey('finance'), JSON.stringify(financeData)); renderFinance();
+    localStorage.setItem(getStorageKey('finance'), JSON.stringify(financeData)); openTodayAfterRender = true; renderFinance();
     document.getElementById('fin-category').value = ''; document.getElementById('fin-amount').value = '';
     statusDiv.innerText = "✅ Запись добавлена вручную!"; statusDiv.style.color = "#00ff88"; setTimeout(()=>{statusDiv.innerText='';}, 2000);
 };
 
 function renderFinance() {
-    const listDiv = document.getElementById('finance-list'); const balanceSpan = document.getElementById('finance-balance-sum');
-    if (financeData.length === 0) { listDiv.innerHTML = '<p style="color: #666; font-size: 14px; text-align: center;">Записей пока нет</p>'; balanceSpan.innerText = '0 ₽'; return; }
+    if (openTodayAfterRender) {
+        statusDiv.innerText = "DEBUG(fin): today=" + getTodayParts().day
+            + " | flag=" + openTodayAfterRender
+            + " | keys=" + Object.keys(financeData.reduce((acc, i) => { acc[i.date] = 1; return acc; }, {})).join(',');
+    }
+    const listDiv = document.getElementById('finance-list');
+    const balanceSpan = document.getElementById('finance-balance-sum');
+
+    if (financeData.length === 0) {
+        listDiv.innerHTML = '<p style="color: #666; font-size: 14px; text-align: center;">Записей пока нет</p>';
+        balanceSpan.innerText = '0 ₽';
+        return;
+    }
+
+    let todayParts = getTodayParts();
+    let todaySafeId = todayParts.day.replace(/\./g, '_');
+    let shouldOpenToday = openTodayAfterRender;
+
     let balance = 0; let tree = {};
     financeData.forEach(item => { if (!item.date || !item.date.includes('.')) return; let p = item.date.split('.'); let year = p[2]; let month = p[1]; if (!tree[year]) tree[year] = {}; if (!tree[year][month]) tree[year][month] = {}; if (!tree[year][month][item.date]) tree[year][month][item.date] = []; tree[year][month][item.date].push(item); balance += item.type === 'income' ? item.amount : -item.amount; });
     let sortedYears = Object.keys(tree).sort((a, b) => parseInt(b) - parseInt(a)); let fullHtml = '';
+
     sortedYears.forEach(year => {
         let yearTotal = 0;
         Object.values(tree[year]).forEach(m => Object.values(m).forEach(d => d.forEach(i => yearTotal += i.type === 'income' ? i.amount : -i.amount)));
@@ -799,17 +913,45 @@ function renderFinance() {
         });
         fullHtml += `</div></div>`;
     });
-    listDiv.innerHTML = fullHtml; const bColor = balance >= 0 ? '#00ff88' : '#ff4444'; balanceSpan.style.color = bColor; balanceSpan.innerText = balance.toLocaleString('ru-RU') + ' ₽';
+
+    if (shouldOpenToday) {
+        openTodayAfterRender = false;
+        let todayContainer = `<div id="fin-day-content-${todaySafeId}" class="hidden"`;
+        if (fullHtml.includes(todayContainer)) {
+            fullHtml = fullHtml.replace(todayContainer, `<div id="fin-day-content-${todaySafeId}"`);
+            fullHtml = fullHtml.replace(`id="fin-day-icon-${todaySafeId}">▼`, `id="fin-day-icon-${todaySafeId}">▲`);
+        }
+    }
+
+    listDiv.innerHTML = fullHtml;
+    const bColor = balance >= 0 ? '#00ff88' : '#ff4444';
+    balanceSpan.style.color = bColor;
+    balanceSpan.innerText = balance.toLocaleString('ru-RU') + ' ₽';
 }
 window.deleteFinance = (id) => { financeData = financeData.filter(i => i.id !== id); localStorage.setItem(getStorageKey('finance'), JSON.stringify(financeData)); renderFinance(); };
 window.clearAllFinance = () => { if (confirm("Удалить ВСЕ финансовые записи?")) { financeData = []; localStorage.setItem(getStorageKey('finance'), JSON.stringify(financeData)); renderFinance(); } };
 
 let diaryData = JSON.parse(localStorage.getItem(getStorageKey('diary'))) || [];
 function renderDiary() {
+    if (openTodayAfterRender) {
+        statusDiv.innerText = "DEBUG(diary): today=" + getTodayParts().day
+            + " | flag=" + openTodayAfterRender
+            + " | keys=" + Object.keys(diaryData.reduce((acc, i) => { acc[i.date] = 1; return acc; }, {})).join(',');
+    }
     const listDiv = document.getElementById('diary-list');
-    if (diaryData.length === 0) { listDiv.innerHTML = '<p style="color: #666; font-size: 14px; text-align: center;">Записей пока нет</p>'; return; }
+
+    if (diaryData.length === 0) {
+        listDiv.innerHTML = '<p style="color: #666; font-size: 14px; text-align: center;">Записей пока нет</p>';
+        return;
+    }
+
+    let todayParts = getTodayParts();
+    let todaySafeId = todayParts.day.replace(/\./g, '_');
+    let shouldOpenToday = openTodayAfterRender;
+
     let tree = {}; diaryData.forEach(item => { if (!item.date || !item.date.includes('.')) return; let p = item.date.split('.'); let year = p[2]; let month = p[1]; if (!tree[year]) tree[year] = {}; if (!tree[year][month]) tree[year][month] = {}; if (!tree[year][month][item.date]) tree[year][month][item.date] = []; tree[year][month][item.date].push(item); });
     let sortedYears = Object.keys(tree).sort((a, b) => parseInt(b) - parseInt(a)); let fullHtml = '';
+
     sortedYears.forEach(year => {
         let yearCount = 0; Object.values(tree[year]).forEach(m => Object.values(m).forEach(d => d.forEach(i => yearCount++)));
         fullHtml += `<div class="year-group" style="margin-bottom: 15px;"><div class="year-header" onclick="toggleAccordion('diary-year-content-${year}', 'diary-year-icon-${year}')" style="background: linear-gradient(135deg, #1a2a33, #0d1a20); padding: 15px 18px; border-radius: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 17px; font-weight: bold; color: #00c2ff; border: 1px solid #00c2ff;"><span>📅 ${year} год</span><span style="display: flex; gap: 12px; align-items: center;"><span style="color: #00c2ff; font-size: 14px;">${yearCount} зап.</span><span id="diary-year-icon-${year}">▼</span></span></div><div id="diary-year-content-${year}" class="hidden" style="margin-top: 10px; padding-left: 12px; border-left: 2px solid #00c2ff;">`;
@@ -828,9 +970,33 @@ function renderDiary() {
         });
         fullHtml += `</div></div>`;
     });
+
+    if (shouldOpenToday) {
+        openTodayAfterRender = false;
+        let todayContainer = `<div id="diary-day-content-${todaySafeId}" class="hidden"`;
+        if (fullHtml.includes(todayContainer)) {
+            fullHtml = fullHtml.replace(todayContainer, `<div id="diary-day-content-${todaySafeId}"`);
+            fullHtml = fullHtml.replace(`id="diary-day-icon-${todaySafeId}">▼`, `id="diary-day-icon-${todaySafeId}">▲`);
+        }
+    }
+
     listDiv.innerHTML = fullHtml;
 }
-document.getElementById('add-diary-btn').addEventListener('click', () => { const val = document.getElementById('diary-input').value.trim(); if (!val) return; const now = new Date(); diaryData.push({ id: Date.now(), text: val, date: now.toLocaleDateString('ru-RU'), time: now.toLocaleTimeString('ru-RU', {hour: '2-digit', minute:'2-digit'}) }); localStorage.setItem(getStorageKey('diary'), JSON.stringify(diaryData)); document.getElementById('diary-input').value = ''; renderDiary(); });
+document.getElementById('add-diary-btn').addEventListener('click', () => {
+    const val = document.getElementById('diary-input').value.trim();
+    if (!val) return;
+    const now = new Date();
+    diaryData.push({
+        id: Date.now(),
+        text: val,
+        date: now.toLocaleDateString('ru-RU'),
+        time: now.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'})
+    });
+    localStorage.setItem(getStorageKey('diary'), JSON.stringify(diaryData));
+    document.getElementById('diary-input').value = '';
+    openTodayAfterRender = true;
+    renderDiary();
+});
 window.deleteDiary = (id) => { diaryData = diaryData.filter(i => i.id !== id); localStorage.setItem(getStorageKey('diary'), JSON.stringify(diaryData)); renderDiary(); };
 window.clearAllDiary = () => { if (confirm("Удалить ВСЕ записи дневника?")) { diaryData = []; localStorage.setItem(getStorageKey('diary'), JSON.stringify(diaryData)); renderDiary(); } };
 
@@ -1057,4 +1223,9 @@ setTimeout(() => {
     }
 }, 2500);
 
-updateLogoPreview(); renderEstimate(); renderFinance(); renderDiary(); renderReminders(); renderWarehouse();
+updateLogoPreview();
+renderEstimate();
+renderFinance();
+renderDiary();
+renderReminders();
+renderWarehouse();
