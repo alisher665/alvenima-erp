@@ -80,6 +80,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         // КРАСИМ СИСТЕМНУЮ ПОЛОСУ СВЕРХУ В ЧЕРНЫЙ ЦВЕТ
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {

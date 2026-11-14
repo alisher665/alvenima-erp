@@ -1,5 +1,10 @@
 const statusDiv = document.getElementById('status');
-let isRecording = false; let currentMicMode = 'splash'; let awaitingConfirm = false; let pendingDeleteAction = null; let wasRecordingBeforeTts = false;
+let isRecording = false;
+let currentMicMode = 'splash';
+let awaitingConfirm = false;
+let pendingDeleteAction = null;
+let wasRecordingBeforeTts = false;
+let pendingItemId = null;
 
 const MONTH_NAMES = { "01": "Январь", "02": "Февраль", "03": "Март", "04": "Апрель", "05": "Май", "06": "Июнь", "07": "Июль", "08": "Август", "09": "Сентябрь", "10": "Октябрь", "11": "Ноябрь", "12": "Декабрь" };
 
@@ -301,17 +306,49 @@ function processVoiceCommand(text) {
     if (awaitingConfirm) {
         let hasNo = cleanText.split(' ').includes('нет') || cleanText.includes('отмена');
         let hasYes = cleanText.split(' ').includes('да') || cleanText.includes('подтверждаю');
-        if (hasNo) { statusDiv.innerText = "❌ Отменено."; speak("Отменено"); awaitingConfirm = false; pendingDeleteAction = null; return; }
+
+        if (hasNo) {
+            statusDiv.innerText = "❌ Отменено.";
+            speak("Отменено");
+            awaitingConfirm = false;
+            pendingDeleteAction = null;
+            pendingItemId = null;
+            return;
+        }
+
         if (hasYes) {
             if (pendingDeleteAction === 'smeta') { currentEstimate = []; localStorage.setItem(getStorageKey('estimate'), JSON.stringify(currentEstimate)); renderEstimate(); }
             else if (pendingDeleteAction === 'finance') { financeData = []; localStorage.setItem(getStorageKey('finance'), JSON.stringify(financeData)); renderFinance(); }
             else if (pendingDeleteAction === 'diary') { diaryData = []; localStorage.setItem(getStorageKey('diary'), JSON.stringify(diaryData)); renderDiary(); }
             else if (pendingDeleteAction === 'reminders') { remindersData = []; localStorage.setItem(getStorageKey('reminders'), JSON.stringify(remindersData)); renderReminders(); }
-            statusDiv.innerText = "✅ Удалено!"; speak("Удалено"); awaitingConfirm = false; pendingDeleteAction = null; return;
+            else if (pendingDeleteAction === 'warehouse') { warehouseData = []; localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(warehouseData)); renderWarehouse(); }
+            else if (pendingDeleteAction === 'warehouse_item') {
+                warehouseData = warehouseData.filter(i => i.id !== pendingItemId);
+                localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(warehouseData));
+                renderWarehouse();
+            }
+            else if (pendingDeleteAction === 'finance_item') {
+                financeData = financeData.filter(i => i.id !== pendingItemId);
+                localStorage.setItem(getStorageKey('finance'), JSON.stringify(financeData));
+                renderFinance();
+            }
+
+            statusDiv.innerText = "✅ Удалено!";
+            speak("Удалено");
+            awaitingConfirm = false;
+            pendingDeleteAction = null;
+            pendingItemId = null;
+            return;
         }
-        awaitingConfirm = false; pendingDeleteAction = null; statusDiv.innerText = "Отменено."; speak("Отменено");
+
+        awaitingConfirm = false;
+        pendingDeleteAction = null;
+        pendingItemId = null;
+        statusDiv.innerText = "Отменено.";
+        speak("Отменено");
     }
 
+    // НАВИГАЦИЯ
     if (cleanText.includes("главная") || cleanText.includes("меню") || cleanText.includes("назад")) { switchView(currentObject ? 'home' : 'objects'); return; }
     if (cleanText === "смета" || cleanText.includes("открой смету")) { switchView('smeta'); return; }
     if (cleanText === "финансы" || cleanText.includes("открой финансы")) { switchView('finance'); return; }
@@ -320,12 +357,19 @@ function processVoiceCommand(text) {
     if (cleanText === "склад" || cleanText.includes("открой склад")) { switchView('warehouse'); return; }
     if (cleanText === "настройки" || cleanText.includes("открой настройки")) { switchView('settings'); return; }
 
+    // КОМАНДЫ УДАЛЕНИЯ ВСЕГО
     let isDeleteSmeta = /удал(ить|и)?\s+смет[уа]/.test(cleanText);
     let isDeleteFin = /удал(ить|и)?\s+финанс[ыа]/.test(cleanText);
     let isDeleteDiary = /удал(ить|и)?\s+дневник[а]?/.test(cleanText);
-    if (isDeleteSmeta || isDeleteFin || isDeleteDiary) {
-        awaitingConfirm = true; pendingDeleteAction = isDeleteSmeta ? 'smeta' : (isDeleteFin ? 'finance' : 'diary');
-        speak("Хотите удалить?"); statusDiv.innerText = "⚠️ Хотите удалить?"; return;
+    let isDeleteReminders = /удал(ить|и)?\s+напоминани[яй]/.test(cleanText);
+    let isDeleteWarehouse = /удал(ить|и)?\s+склад/.test(cleanText);
+
+    if (isDeleteSmeta || isDeleteFin || isDeleteDiary || isDeleteReminders || isDeleteWarehouse) {
+        awaitingConfirm = true;
+        pendingDeleteAction = isDeleteSmeta ? 'smeta' : (isDeleteFin ? 'finance' : (isDeleteDiary ? 'diary' : (isDeleteReminders ? 'reminders' : 'warehouse')));
+        speak("Вы уверены?");
+        statusDiv.innerText = "⚠️ Удалить всё? Скажите 'Да' или 'Нет'.";
+        return;
     }
 
     // КОНТЕКСТНЫЕ КОМАНДЫ
@@ -356,6 +400,58 @@ function parseSmetaVoice(lower) {
 }
 
 function parseFinanceVoice(lower) {
+    // ПРОВЕРКА НА УДАЛЕНИЕ КОНКРЕТНОЙ ЗАПИСИ
+    if (lower.includes('удали') || lower.includes('удалить')) {
+        let isIncome = lower.includes('приход') || lower.includes('доход') || lower.includes('поступление');
+        let isExpense = lower.includes('расход') || lower.includes('потрат') || lower.includes('трата');
+
+        let words = lower.replace(/[^а-яё0-9\s]/g, ' ').replace(/\s+/g, ' ').trim().split(' ');
+        let nameWords = [];
+        let amount = 0;
+        let skip = ['удали', 'удалить', 'расход', 'приход', 'доход', 'потрат', 'трата', 'на', 'за', 'в', 'поступление'];
+
+        for (let w of words) {
+            let cleanW = w.replace(/[^а-яё0-9]/g, '');
+            if (!cleanW) continue;
+            if (skip.includes(cleanW)) continue;
+            if (cleanW.match(/^\d+$/)) { amount += parseFloat(cleanW); continue; }
+            if (NUMBERS_MAP[cleanW] !== undefined) { amount += NUMBERS_MAP[cleanW]; continue; }
+            nameWords.push(cleanW);
+        }
+
+        let searchName = nameWords.join(' ').trim().toLowerCase();
+
+        const itemIndex = financeData.findIndex(i => {
+            let typeMatch = true;
+            if (isIncome) typeMatch = (i.type === 'income');
+            if (isExpense) typeMatch = (i.type === 'expense');
+
+            let nameMatch = true;
+            if (searchName) nameMatch = i.category.toLowerCase().includes(searchName);
+
+            let amountMatch = true;
+            if (amount > 0) amountMatch = (i.amount === amount);
+
+            return typeMatch && nameMatch && amountMatch;
+        });
+
+        if (itemIndex === -1) {
+            statusDiv.innerText = "⚠️ Запись не найдена. Скажите точнее: 'Удали расход на бензин 500'";
+            speak("Не найдено");
+            return;
+        }
+
+        const item = financeData[itemIndex];
+        awaitingConfirm = true;
+        pendingDeleteAction = 'finance_item';
+        pendingItemId = item.id;
+
+        statusDiv.innerText = `⚠️ Удалить: ${item.category} (${item.amount} ₽)? Скажите 'Да' или 'Нет'.`;
+        speak("Вы уверены?");
+        return;
+    }
+
+    // ДОБАВЛЕНИЕ
     let type = 'income'; if (lower.includes('потрат') || lower.includes('расход') || lower.includes('куп') || lower.includes('отда') || lower.includes('израсходова') || (lower.includes('заплат') && !lower.includes('заказчик'))) { type = 'expense'; }
     let words = lower.split(/\s+/); let nameWords = []; let amount = 0; let currentNum = 0;
     for (let i = 0; i < words.length; i++) {
@@ -379,52 +475,13 @@ function parseDiaryVoice(lower) {
 }
 
 // ==========================================
-// ПАРСЕР СКЛАДА (ИСПРАВЛЕННЫЙ)
+// ПАРСЕР СКЛАДА
 // ==========================================
 function parseWarehouseVoice(lower) {
     statusDiv.innerText = '🔍 Услышано: ' + lower;
 
     let text = lower.replace(/[^а-яё0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
     let words = text.split(' ').filter(w => w.length > 0);
-
-    // 1. Проверяем, не сказал ли пользователь ПРОСТО "Добавь" (или "Сохрани")
-    let isOnlyAdd = (words.length === 1 || (words.length === 2 && words[0] === 'на')) &&
-                    (words.includes('добавь') || words.includes('добавить') || words.includes('сохрани') || words.includes('сохранить'));
-
-    if (isOnlyAdd) {
-        const nameEl = document.getElementById('wh-name');
-        const qtyEl = document.getElementById('wh-qty');
-        const addBtn = document.getElementById('add-wh-btn');
-
-        if (nameEl && nameEl.value.trim() !== '' && qtyEl && parseFloat(qtyEl.value) > 0 && addBtn) {
-            addBtn.click();
-            statusDiv.innerText = `✅ Сохранено: ${nameEl.value}`;
-            speak('Сохранено');
-        } else {
-            statusDiv.innerText = "⚠️ Поля пустые. Сначала продиктуйте материал.";
-            speak('Поля пустые');
-        }
-        return;
-    }
-
-    // 2. Если это диктовка данных (заполняем поля и НЕ добавляем)
-    let poIndex = -1;
-    for (let i = 0; i < words.length; i++) {
-        if (words[i] === 'по' || words[i] === 'цена' || words[i] === 'за') {
-            poIndex = i;
-            break;
-        }
-    }
-
-    let qtyPart = '';
-    let pricePart = '';
-    if (poIndex !== -1) {
-        qtyPart = words.slice(0, poIndex).join(' ');
-        pricePart = words.slice(poIndex + 1).join(' ');
-    } else {
-        qtyPart = text;
-        pricePart = '';
-    }
 
     const localMap = {
         'ноль':0,'один':1,'одна':1,'два':2,'две':2,'три':3,'четыре':4,'пять':5,
@@ -444,18 +501,15 @@ function parseWarehouseVoice(lower) {
         let arr = str.split(' ');
         let result = 0;
         let current = 0;
-
         for (let w of arr) {
             let cleanW = w.replace(/[^а-яё0-9]/g, '');
             if (!cleanW) continue;
-
             if (cleanW.match(/^\d+$/)) {
                 current += parseFloat(cleanW);
             } else if (localMap[cleanW] !== undefined) {
                 let val = localMap[cleanW];
-                // Если это тысяча или миллион
                 if (val >= 1000) {
-                    if (current === 0) current = 1; // Если сказали просто "тысяча"
+                    if (current === 0) current = 1;
                     result += current * val;
                     current = 0;
                 } else {
@@ -464,6 +518,102 @@ function parseWarehouseVoice(lower) {
             }
         }
         return result + current;
+    }
+
+    // УДАЛЕНИЕ ИЛИ ВЫЧЕТ КОНКРЕТНОГО МАТЕРИАЛА
+    if (words.includes('удали') || words.includes('удалить')) {
+        let nameWord = "";
+        let qtyToRemove = 0;
+        let skip = ['удали', 'удалить', 'материал', 'на', 'со', 'склада', 'мешок', 'мешка', 'мешков', 'меш', 'кг', 'метр', 'штук', 'штуки'];
+
+        for (let w of words) {
+            let cleanW = w.replace(/[^а-яё0-9]/g, '');
+            if (!cleanW) continue;
+            if (skip.includes(cleanW)) continue;
+
+            if (cleanW.match(/^\d+$/) || localMap[cleanW] !== undefined) {
+                qtyToRemove += (cleanW.match(/^\d+$/) ? parseFloat(cleanW) : localMap[cleanW]);
+            } else if (!nameWord) {
+                nameWord = cleanW;
+            }
+        }
+
+        if (!nameWord) {
+            statusDiv.innerText = "⚠️ Не понял, что удалить. Скажите: 'Удали цемент'";
+            speak("Не понял");
+            return;
+        }
+
+        const itemIndex = warehouseData.findIndex(i => i.name.toLowerCase().includes(nameWord.toLowerCase()));
+        if (itemIndex === -1) {
+            statusDiv.innerText = `⚠️ Материал "${nameWord}" не найден.`;
+            speak(`Не найдено`);
+            return;
+        }
+
+        const item = warehouseData[itemIndex];
+
+        if (qtyToRemove > 0) {
+            if (qtyToRemove > item.qty) {
+                statusDiv.innerText = `⚠️ На складе только ${item.qty} ${item.unit}. Нельзя вычесть ${qtyToRemove}.`;
+                speak("Недостаточно материала");
+                return;
+            }
+            item.qty -= qtyToRemove;
+            item.id = Date.now();
+            localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(warehouseData));
+            renderWarehouse();
+            statusDiv.innerText = `✅ Вычтено: ${qtyToRemove} ${item.unit} "${item.name}". Остаток: ${item.qty}`;
+            speak(`Вычтено`);
+            return;
+        }
+
+        awaitingConfirm = true;
+        pendingDeleteAction = 'warehouse_item';
+        pendingItemId = item.id;
+
+        statusDiv.innerText = `⚠️ Удалить "${item.name}" полностью? Скажите 'Да' или 'Нет'.`;
+        speak(`Вы уверены?`);
+        return;
+    }
+
+    // ДОБАВЛЕНИЕ (СОХРАНЕНИЕ)
+    let isOnlyAdd = (words.length === 1 || (words.length === 2 && words[0] === 'на')) &&
+                    (words.includes('добавь') || words.includes('добавить') || words.includes('сохрани') || words.includes('сохранить'));
+
+    if (isOnlyAdd) {
+        const nameEl = document.getElementById('wh-name');
+        const qtyEl = document.getElementById('wh-qty');
+        const addBtn = document.getElementById('add-wh-btn');
+
+        if (nameEl && nameEl.value.trim() !== '' && qtyEl && parseFloat(qtyEl.value) > 0 && addBtn) {
+            addBtn.click();
+            statusDiv.innerText = `✅ Сохранено: ${nameEl.value}`;
+            speak('Сохранено');
+        } else {
+            statusDiv.innerText = "⚠️ Поля пустые. Сначала продиктуйте материал.";
+            speak('Поля пустые');
+        }
+        return;
+    }
+
+    // ЗАПОЛНЕНИЕ ПОЛЕЙ
+    let poIndex = -1;
+    for (let i = 0; i < words.length; i++) {
+        if (words[i] === 'по' || words[i] === 'цена' || words[i] === 'за') {
+            poIndex = i;
+            break;
+        }
+    }
+
+    let qtyPart = '';
+    let pricePart = '';
+    if (poIndex !== -1) {
+        qtyPart = words.slice(0, poIndex).join(' ');
+        pricePart = words.slice(poIndex + 1).join(' ');
+    } else {
+        qtyPart = text;
+        pricePart = '';
     }
 
     let qty = getNumber(qtyPart);
@@ -498,7 +648,6 @@ function parseWarehouseVoice(lower) {
         finalName = 'Материал';
     }
 
-    // Заполняем поля
     const nameEl = document.getElementById('wh-name');
     const qtyEl = document.getElementById('wh-qty');
     const priceEl = document.getElementById('wh-price');
@@ -600,7 +749,7 @@ function parseReminderVoice(lower) {
         localStorage.setItem(getStorageKey('reminders'), JSON.stringify(remindersData));
         renderReminders();
         statusDiv.innerText = `⏰ Установлено: ${eventText}`;
-        speak("Напоминание установлено");
+        speak("Установлено");
     } else {
         statusDiv.innerText = "Ошибка: Нет доступа к будильнику";
     }
@@ -696,6 +845,38 @@ window.deleteEstimateItem = (id) => { currentEstimate = currentEstimate.filter(i
 document.getElementById('add-btn').addEventListener('click', addToEstimate);
 
 let financeData = JSON.parse(localStorage.getItem(getStorageKey('finance'))) || [];
+
+window.addFinanceManual = function() {
+    const type = document.getElementById('fin-type').value;
+    const category = document.getElementById('fin-category').value.trim();
+    const amountRaw = document.getElementById('fin-amount').value;
+
+    const amount = parseFloat(String(amountRaw).replace(',', '.'));
+
+    if (!category || isNaN(amount) || amount <= 0) {
+        alert("Заполните название и сумму!");
+        return;
+    }
+
+    financeData.push({
+        id: Date.now(),
+        type: type,
+        category: category.charAt(0).toUpperCase() + category.slice(1),
+        amount: amount,
+        date: new Date().toLocaleDateString('ru-RU')
+    });
+
+    localStorage.setItem(getStorageKey('finance'), JSON.stringify(financeData));
+    renderFinance();
+
+    document.getElementById('fin-category').value = '';
+    document.getElementById('fin-amount').value = '';
+
+    statusDiv.innerText = "✅ Запись добавлена вручную!";
+    statusDiv.style.color = "#00ff88";
+    setTimeout(()=>{statusDiv.innerText='';}, 2000);
+};
+
 function renderFinance() {
     const listDiv = document.getElementById('finance-list'); const balanceSpan = document.getElementById('finance-balance-sum');
     if (financeData.length === 0) { listDiv.innerHTML = '<p style="color: #666; font-size: 14px; text-align: center;">Записей пока нет</p>'; balanceSpan.innerText = '0 ₽'; return; }
@@ -761,6 +942,50 @@ window.deleteDiary = (id) => { diaryData = diaryData.filter(i => i.id !== id); l
 window.clearAllDiary = () => { if (confirm("Удалить ВСЕ записи дневника?")) { diaryData = []; localStorage.setItem(getStorageKey('diary'), JSON.stringify(diaryData)); renderDiary(); } };
 
 let remindersData = JSON.parse(localStorage.getItem(getStorageKey('reminders'))) || [];
+window.addReminderManual = function() {
+    const textInput = document.getElementById('rem-text').value.trim();
+    const dateInput = document.getElementById('rem-date').value;
+    const timeInput = document.getElementById('rem-time').value;
+
+    if (!textInput || !dateInput || !timeInput) {
+        alert("Заполните текст, дату и время!");
+        return;
+    }
+
+    // Собираем дату и время в один объект
+    const targetDate = new Date(dateInput + 'T' + timeInput);
+    const timestamp = targetDate.getTime();
+
+    if (timestamp < Date.now()) {
+        alert("Нельзя ставить напоминание на прошлое время!");
+        return;
+    }
+
+    if (window.AndroidApp && window.AndroidApp.setAlarm) {
+        window.AndroidApp.setAlarm(timestamp, textInput);
+    } else {
+        alert("Внимание: системный будильник не доступен в браузере. В приложении на телефоне всё сработает.");
+    }
+
+    remindersData.push({
+        id: Date.now(),
+        text: textInput,
+        time: timestamp,
+        dateStr: targetDate.toLocaleString('ru-RU')
+    });
+
+    localStorage.setItem(getStorageKey('reminders'), JSON.stringify(remindersData));
+    renderReminders();
+
+    // Очищаем поля
+    document.getElementById('rem-text').value = '';
+    document.getElementById('rem-date').value = '';
+    document.getElementById('rem-time').value = '';
+
+    statusDiv.innerText = "✅ Напоминание добавлено!";
+    statusDiv.style.color = "#00ff88";
+    setTimeout(()=>{statusDiv.innerText='';}, 2000);
+};
 function renderReminders() {
     const listDiv = document.getElementById('reminders-list');
     let active = remindersData.filter(r => r.time > Date.now()).sort((a,b) => a.time - b.time); let past = remindersData.filter(r => r.time <= Date.now()).sort((a,b) => b.time - a.time);
@@ -775,7 +1000,7 @@ window.clearAllReminders = () => { if (confirm("Удалить все напом
 
 let warehouseData = JSON.parse(localStorage.getItem(getStorageKey('warehouse'))) || [];
 document.getElementById('add-wh-btn').addEventListener('click', () => {
-    const name = (document.getElementById('wh-name').value || '').trim();
+    const nameInput = (document.getElementById('wh-name').value || '').trim();
     const qtyRaw = document.getElementById('wh-qty').value;
     const unit = document.getElementById('wh-unit').value;
     const priceRaw = document.getElementById('wh-price').value;
@@ -783,9 +1008,20 @@ document.getElementById('add-wh-btn').addEventListener('click', () => {
     const qty = parseFloat(String(qtyRaw).replace(',', '.'));
     const price = parseFloat(String(priceRaw).replace(',', '.')) || 0;
 
-    if (!name || isNaN(qty)) { alert("Заполните название и количество!"); return; }
+    if (!nameInput || isNaN(qty)) { alert("Заполните название и количество!"); return; }
 
-    warehouseData.push({ id: Date.now(), name, qty, unit, price });
+    const existingIndex = warehouseData.findIndex(item => item.name.toLowerCase() === nameInput.toLowerCase());
+
+    if (existingIndex !== -1) {
+        warehouseData[existingIndex].qty += qty;
+        if (price > 0) {
+            warehouseData[existingIndex].price = price;
+        }
+        warehouseData[existingIndex].id = Date.now();
+    } else {
+        warehouseData.push({ id: Date.now(), name: nameInput, qty, unit, price });
+    }
+
     localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(warehouseData));
 
     document.getElementById('wh-name').value = '';
@@ -795,11 +1031,59 @@ document.getElementById('add-wh-btn').addEventListener('click', () => {
 });
 function renderWarehouse() {
     const listDiv = document.getElementById('warehouse-list');
-    if (warehouseData.length === 0) { listDiv.innerHTML = '<p style="color: #666; font-size: 14px; text-align: center;">Склад пуст</p>'; return; }
+    if (warehouseData.length === 0) {
+        listDiv.innerHTML = '<p style="color: #666; font-size: 14px; text-align: center;">Склад пуст</p>';
+        return;
+    }
+
     let html = '';
-    warehouseData.sort((a,b) => b.id - a.id).forEach(item => { html += `<div class="warehouse-item"><div class="warehouse-info"><div class="warehouse-name">${item.name}</div><div class="warehouse-details">Остаток: ${item.qty} ${item.unit} • Цена: ${item.price} ₽</div></div><button class="delete-item-btn" onclick="deleteWarehouseItem(${item.id})">✕</button></div>`; });
+    warehouseData.sort((a,b) => b.id - a.id).forEach(item => {
+        const isLowStock = item.qty < 10;
+        const qtyColor = isLowStock ? '#ff4444' : '#00ff88';
+        const warningIcon = isLowStock ? ' ⚠️' : '';
+
+        html += `
+        <div class="warehouse-item" style="border-left: 3px solid ${isLowStock ? '#ff4444' : '#00c2ff'}; display: flex; justify-content: space-between; align-items: center; padding-right: 10px;">
+            <div class="warehouse-info" style="flex: 1;">
+                <div class="warehouse-name">${item.name}${warningIcon}</div>
+                <div class="warehouse-details">
+                    Остаток: <span style="color: ${qtyColor}; font-weight: bold;">${item.qty} ${item.unit}</span> •
+                    Цена: ${item.price} ₽
+                </div>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <button onclick="writeOffWarehouseItem(${item.id})" style="background: #ff9800; color: white; border: none; border-radius: 6px; padding: 6px 10px; font-size: 12px; cursor: pointer; font-weight: bold;">Списать</button>
+                <button class="delete-item-btn" onclick="deleteWarehouseItem(${item.id})">✕</button>
+            </div>
+        </div>`;
+    });
     listDiv.innerHTML = html;
 }
+
+window.writeOffWarehouseItem = function(id) {
+    const item = warehouseData.find(i => i.id === id);
+    if (!item) return;
+
+    let amountStr = prompt(`Сколько списать "${item.name}"? (Остаток: ${item.qty} ${item.unit})`);
+    if (amountStr === null) return;
+
+    let amount = parseFloat(String(amountStr).replace(',', '.'));
+    if (isNaN(amount) || amount <= 0) {
+        alert("Введите правильное число больше нуля!");
+        return;
+    }
+
+    if (amount > item.qty) {
+        if (!confirm(`Внимание! Вы пытаетесь списать ${amount}, а на складе только ${item.qty}. Продолжить (уйти в минус)?`)) {
+            return;
+        }
+    }
+
+    item.qty -= amount;
+    item.id = Date.now();
+    localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(warehouseData));
+    renderWarehouse();
+};
 window.deleteWarehouseItem = (id) => { warehouseData = warehouseData.filter(i => i.id !== id); localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(warehouseData)); renderWarehouse(); };
 
 // ==========================================
@@ -875,6 +1159,76 @@ window.shareEstimate = async () => {
     const pdfBase64 = doc.output('datauristring');
     if (window.AndroidApp) { window.AndroidApp.sharePdf(pdfBase64); } else { alert("Отправка файлов доступна только в приложении."); }
 };
+
+// ==========================================
+// СВАЙПЫ ДЛЯ ПЕРЕКЛЮЧЕНИЯ ЭКРАНОВ (С АНИМАЦИЕЙ)
+// ==========================================
+let touchStartX = 0;
+let touchStartY = 0;
+let touchEndX = 0;
+let touchEndY = 0;
+
+const swipeViews = ['home', 'smeta', 'finance', 'diary', 'reminders', 'warehouse'];
+
+document.addEventListener('touchstart', e => {
+    touchStartX = e.changedTouches[0].screenX;
+    touchStartY = e.changedTouches[0].screenY;
+}, { passive: true });
+
+document.addEventListener('touchend', e => {
+    touchEndX = e.changedTouches[0].screenX;
+    touchEndY = e.changedTouches[0].screenY;
+    handleSwipeGesture();
+}, { passive: true });
+
+function handleSwipeGesture() {
+    if (currentMicMode === 'splash' || currentMicMode === 'objects') return;
+
+    const diffX = touchEndX - touchStartX;
+    const diffY = touchEndY - touchStartY;
+
+    // Проверяем, что свайп горизонтальный и достаточно длинный
+    if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 50) {
+        let currentIndex = swipeViews.indexOf(currentMicMode);
+        if (currentIndex === -1) return;
+
+        // Определяем, куда свайпаем
+        let targetViewId = null;
+        let animationClass = '';
+
+        if (diffX > 0) {
+            // Свайп вправо (назад)
+            if (currentIndex > 0) {
+                targetViewId = swipeViews[currentIndex - 1];
+                animationClass = 'slide-in-left';
+            } else {
+                targetViewId = 'objects';
+                animationClass = 'slide-in-left';
+            }
+        } else {
+            // Свайп влево (вперед)
+            if (currentIndex < swipeViews.length - 1) {
+                targetViewId = swipeViews[currentIndex + 1];
+                animationClass = 'slide-in-right';
+            }
+        }
+
+        if (targetViewId) {
+            // Переключаем экран (скрываем старый, показываем новый)
+            switchView(targetViewId);
+
+            // Добавляем класс анимации к новому экрану
+            const newViewElement = document.getElementById('view-' + targetViewId);
+            if (newViewElement) {
+                newViewElement.classList.add(animationClass);
+                // Убираем класс после завершения анимации, чтобы можно было свайпать снова
+                setTimeout(() => {
+                    newViewElement.classList.remove(animationClass);
+                }, 300);
+            }
+        }
+    }
+}
 
 renderSplash();
 
