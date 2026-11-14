@@ -118,21 +118,40 @@ body {
     transform: translateY(-2px);
 }
 
+/* ==========================================
+   КНОПКИ НА СТАРТОВОМ ЭКРАНЕ (ОБЪЕКТ / ЛИЧНОЕ)
+   ========================================== */
 .add-object-btn {
-    background: #00c2ff;
-    color: #000;
-    border: none;
+    flex: 1;
     padding: 15px;
-    border-radius: 12px;
-    font-size: 16px;
+    font-size: 18px;
     font-weight: bold;
+    border-radius: 12px;
     cursor: pointer;
-    box-shadow: 0 4px 15px rgba(0, 194, 255, 0.4);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
     transition: all 0.2s;
+    border: none;
+}
+
+/* Кнопка "+ Объект" */
+.btn-primary {
+    background: linear-gradient(135deg, #00c2ff, #0077ff);
+    color: #000;
+    box-shadow: 0 4px 15px rgba(0, 194, 255, 0.4);
+}
+
+/* Кнопка "Личное" */
+.btn-secondary {
+    background: #222;
+    color: #fff; /* Белый текст */
+    border: 1px solid #444;
 }
 
 .add-object-btn:active {
-    transform: scale(0.98);
+    transform: scale(0.96);
 }
 
 /* ==========================================
@@ -561,4 +580,125 @@ input:focus, select:focus, textarea:focus {
 .back-btn:active {
     background: #00c2ff;
     color: #000;
+}
+
+/* ==========================================
+   MATERIAL DESIGN ФОРМЫ (ПЛАВАЮЩИЙ ЗАГОЛОВОК)
+   ========================================== */
+.form-card {
+    background: #151515;
+    padding: 20px;
+    border-radius: 16px;
+    border: 1px solid #333;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    margin-bottom: 20px;
+}
+
+.input-wrapper {
+    position: relative;
+    margin-bottom: 25px;
+    margin-top: 10px;
+}
+
+.input-wrapper input,
+.input-wrapper select {
+    width: 100%;
+    padding: 15px 15px 15px 15px;
+    background: transparent;
+    border: 2px solid #333;
+    border-radius: 12px;
+    color: #fff;
+    font-size: 16px;
+    outline: none;
+    transition: all 0.3s ease;
+    appearance: none; /* Убираем стандартную стрелку у select */
+}
+
+.input-wrapper input:focus,
+.input-wrapper select:focus {
+    border-color: #00c2ff;
+    box-shadow: 0 0 15px rgba(0, 194, 255, 0.2);
+}
+
+/* Плавающий заголовок */
+.input-wrapper label {
+    position: absolute;
+    left: 15px;
+    top: 15px;
+    color: #888;
+    font-size: 16px;
+    pointer-events: none;
+    transition: all 0.3s ease;
+    background: #151515;
+    padding: 0 5px;
+}
+
+/* Когда поле в фокусе или в нем есть текст — заголовок уезжает наверх */
+/* Когда поле в фокусе или в нем есть текст — заголовок уезжает наверх */
+.input-wrapper input:focus ~ label,
+.input-wrapper input:valid ~ label,
+.input-wrapper textarea:focus ~ label,
+.input-wrapper textarea:valid ~ label,
+.input-wrapper select:focus ~ label,
+.input-wrapper select:valid ~ label {
+    top: -10px;
+    left: 10px;
+    font-size: 12px;
+    color: #00c2ff;
+    font-weight: bold;
+}
+
+/* Если текста нет, а поле потеряло фокус — возвращаем на место (для textarea) */
+.input-wrapper textarea:placeholder-shown:not(:focus) ~ label {
+    top: 15px;
+    left: 15px;
+    font-size: 16px;
+    color: #888;
+    font-weight: normal;
+}
+
+/* Для селектов (чтобы стрелочка была справа) */
+.input-wrapper select {
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2300c2ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 15px center;
+    background-size: 15px;
+    padding-right: 40px;
+}
+
+/* Красивая кнопка с бликом */
+.btn-add {
+    width: 100%;
+    padding: 16px;
+    background: linear-gradient(135deg, #00c2ff, #0055ff);
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 0 5px 20px rgba(0, 194, 255, 0.4);
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.btn-add::after {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%; width: 50%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+    transform: skewX(-20deg);
+    transition: left 0.5s ease;
+}
+
+.btn-add:active {
+    transform: scale(0.97);
+    box-shadow: 0 2px 10px rgba(0, 194, 255, 0.2);
+}
+
+.btn-add:active::after {
+    left: 150%;
 }

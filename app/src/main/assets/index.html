@@ -43,11 +43,11 @@
     </div>
 
     <div style="display: flex; gap: 10px; width: 100%; max-width: 400px; margin-top: 20px;">
-        <button class="add-object-btn" style="flex: 1; padding: 15px; font-size: 15px;" onclick="addNewObjectPrompt()">
+        <button class="add-object-btn btn-primary" onclick="addNewObjectPrompt()">
             <span style="font-size: 20px;">+</span> Объект
         </button>
 
-        <button class="add-object-btn" style="flex: 1; background: #222; border: 1px solid #444; padding: 15px; font-size: 15px;" onclick="selectPersonalMode()">
+        <button class="add-object-btn btn-secondary" onclick="selectPersonalMode()">
             <span style="font-size: 20px;">📝</span> Личное
         </button>
     </div>
@@ -98,25 +98,36 @@
         <h2>Настройки</h2>
 
         <div class="divider">РЕКВИЗИТЫ ДЛЯ PDF</div>
-        <div class="form-group"><label>Название компании / ФИО</label><input type="text" id="set-company" placeholder="ИП Иванов"></div>
-        <div class="form-group"><label>Телефон</label><input type="text" id="set-phone" placeholder="+7 (999) 123-45-67"></div>
-
-        <div class="divider">ИНТЕРФЕЙС</div>
-        <div class="form-group"><label>Валюта</label>
-            <select id="set-currency">
-                <option value="₽">Рубль (₽)</option>
-                <option value="₸">Тенге (₸)</option>
-                <option value="₴">Гривна (₴)</option>
-                <option value="$">Доллар ($)</option>
-                <option value="€">Евро (€)</option>
-            </select>
+        <div class="form-card" style="margin-bottom: 20px;">
+            <div class="input-wrapper">
+                <input type="text" id="set-company" placeholder=" ">
+                <label>Название компании / ФИО</label>
+            </div>
+            <div class="input-wrapper">
+                <input type="text" id="set-phone" placeholder=" ">
+                <label>Телефон</label>
+            </div>
         </div>
 
-        <button class="btn-add" onclick="saveSettings()" style="background: #007bff;">Сохранить настройки</button>
+        <div class="divider">ИНТЕРФЕЙС</div>
+        <div class="form-card" style="margin-bottom: 20px;">
+            <div class="input-wrapper">
+                <select id="set-currency">
+                    <option value="₽">Рубль (₽)</option>
+                    <option value="₸">Тенге (₸)</option>
+                    <option value="₴">Гривна (₴)</option>
+                    <option value="$">Доллар ($)</option>
+                    <option value="€">Евро (€)</option>
+                </select>
+                <label>Валюта</label>
+            </div>
+        </div>
 
-        <div class="divider">ДАННЫЕ</div>
-        <button class="btn-add" onclick="exportData()" style="background: #444; margin-bottom: 10px;">📤 Создать бэкап (Скачать файл)</button>
-        <button class="btn-danger" onclick="clearAllAppData()">🗑 Полностью очистить приложение</button>
+        <button class="btn-add" onclick="saveSettings()">Сохранить настройки</button>
+
+        <div class="divider" style="margin-top: 30px;">ДАННЫЕ</div>
+        <button class="btn-add" onclick="exportData()" style="background: #333; border: 1px solid #555; box-shadow: none; margin-bottom: 10px;">📤 Создать бэкап</button>
+        <button class="btn-danger" onclick="clearAllAppData()">🗑 Полностью очистить</button>
     </div>
 </div>
 
@@ -126,24 +137,24 @@
     <div class="container">
         <h2>Напоминания</h2><div class="divider">ДИКТУЙТЕ ВРЕМЯ И ЗАДАЧУ</div>
 
-        <div style="background: #151515; padding: 20px; border-radius: 16px; border: 1px solid #333; box-shadow: 0 8px 20px rgba(0,0,0,0.4); margin-bottom: 20px;">
-            <div class="form-group">
+        <div class="form-card">
+            <div class="input-wrapper">
+                <input type="text" id="rem-text" placeholder=" ">
                 <label>О чём напомнить?</label>
-                <input type="text" id="rem-text" placeholder="Например: Позвонить заказчику" style="background: #0a0a0a; border: 1px solid #222;">
             </div>
 
             <div style="display: flex; gap: 10px;">
-                <div class="form-group" style="flex: 1;">
-                    <label>Дата</label>
-                    <input type="date" id="rem-date" style="background: #0a0a0a; border: 1px solid #222;">
+                <div class="input-wrapper" style="flex: 1;">
+                    <input type="date" id="rem-date" placeholder=" ">
+                    <label style="top: -10px; left: 10px; font-size: 12px; color: #888;">Дата</label>
                 </div>
-                <div class="form-group" style="flex: 1;">
-                    <label>Время</label>
-                    <input type="time" id="rem-time" style="background: #0a0a0a; border: 1px solid #222;">
+                <div class="input-wrapper" style="flex: 1;">
+                    <input type="time" id="rem-time" placeholder=" ">
+                    <label style="top: -10px; left: 10px; font-size: 12px; color: #888;">Время</label>
                 </div>
             </div>
 
-            <button onclick="addReminderManual()" class="btn-add">Добавить напоминание</button>
+            <button onclick="addReminderManual()" class="btn-add" style="margin-top: 10px;">Добавить</button>
         </div>
 
         <div class="list-container" style="background: #111; padding: 15px; margin: 0;">
@@ -158,35 +169,35 @@
     <div class="container">
         <h2>Склад материалов</h2><div class="divider">ДОБАВИТЬ МАТЕРИАЛ ВРУЧНУЮ</div>
 
-        <div style="background: #151515; padding: 20px; border-radius: 16px; border: 1px solid #333; box-shadow: 0 8px 20px rgba(0,0,0,0.4); margin-bottom: 20px;">
-            <div class="form-group">
+        <div class="form-card">
+            <div class="input-wrapper">
+                <input type="text" id="wh-name" placeholder=" ">
                 <label>Название материала</label>
-                <input type="text" id="wh-name" placeholder="Например: Цемент М500" style="background: #0a0a0a; border: 1px solid #222;">
             </div>
 
             <div style="display: flex; gap: 10px;">
-                <div class="form-group" style="flex: 2;">
+                <div class="input-wrapper" style="flex: 2;">
+                    <input type="number" id="wh-qty" placeholder=" ">
                     <label>Кол-во</label>
-                    <input type="number" id="wh-qty" placeholder="0" step="0.1" style="background: #0a0a0a; border: 1px solid #222;">
                 </div>
-                <div class="form-group" style="flex: 1;">
-                    <label>Ед.</label>
-                    <select id="wh-unit" style="background: #0a0a0a; border: 1px solid #222;">
+                <div class="input-wrapper" style="flex: 1;">
+                    <select id="wh-unit">
                         <option value="шт.">шт.</option>
                         <option value="меш.">меш.</option>
                         <option value="кг">кг</option>
                         <option value="м.">м.</option>
                         <option value="м²">м²</option>
                     </select>
+                    <label>Ед.</label>
                 </div>
             </div>
 
-            <div class="form-group">
+            <div class="input-wrapper">
+                <input type="text" inputmode="decimal" id="wh-price" placeholder=" ">
                 <label>Цена закупки (₽)</label>
-                <input type="text" inputmode="decimal" id="wh-price" placeholder="0" style="background: #0a0a0a; border: 1px solid #222;">
             </div>
 
-            <button id="add-wh-btn" class="btn-add">Добавить на склад</button>
+            <button id="add-wh-btn" class="btn-add" style="margin-top: 10px;">Добавить на склад</button>
         </div>
 
         <div class="list-container" style="background: #111; padding: 15px; margin-top: 20px;"><h3 class="list-header">Остатки на складе</h3><div id="warehouse-list"></div></div>
@@ -198,34 +209,34 @@
     <div class="container" id="form-container">
         <h2>Добавить работу</h2><div class="divider">ИЛИ ВВЕДИТЕ ВРУЧНУЮ</div>
 
-        <div style="background: #151515; padding: 20px; border-radius: 16px; border: 1px solid #333; box-shadow: 0 8px 20px rgba(0,0,0,0.4); margin-bottom: 20px;">
-            <div class="form-group">
+        <div class="form-card">
+            <div class="input-wrapper">
+                <input type="text" id="work-name" placeholder=" " autocomplete="off">
                 <label>Название работы</label>
-                <input type="text" id="work-name" placeholder="Например: Штукатурка стен" autocomplete="off" style="background: #0a0a0a; border: 1px solid #222;">
             </div>
 
             <div style="display: flex; gap: 10px;">
-                <div class="form-group" style="flex: 2;">
+                <div class="input-wrapper" style="flex: 2;">
+                    <input type="number" id="work-qty" placeholder=" ">
                     <label>Кол-во</label>
-                    <input type="number" id="work-qty" placeholder="0" step="0.1" style="background: #0a0a0a; border: 1px solid #222;">
                 </div>
-                <div class="form-group" style="flex: 1;">
-                    <label>Ед. изм.</label>
-                    <select id="work-unit" style="background: #0a0a0a; border: 1px solid #222;">
+                <div class="input-wrapper" style="flex: 1;">
+                    <select id="work-unit">
                         <option value="м²">м²</option>
                         <option value="м.п.">м.п.</option>
                         <option value="шт.">шт.</option>
                         <option value="компл.">компл.</option>
                     </select>
+                    <label>Ед. изм.</label>
                 </div>
             </div>
 
-            <div class="form-group">
+            <div class="input-wrapper">
+                <input type="number" id="work-price" placeholder=" ">
                 <label>Цена за единицу (₽)</label>
-                <input type="number" id="work-price" placeholder="0" style="background: #0a0a0a; border: 1px solid #222;">
             </div>
 
-            <button id="add-btn" class="btn-add">Добавить в смету</button>
+            <button id="add-btn" class="btn-add" style="margin-top: 10px;">Добавить в смету</button>
         </div>
     </div>
 
@@ -233,9 +244,9 @@
         <h3 class="list-header">Текущая смета</h3><div id="estimate-list"></div>
         <div class="total-row" id="total-row" style="display: none;"><span>Итого:</span><span id="total-sum">0 ₽</span></div>
         <div style="margin-top: 20px; border-top: 1px solid #333; padding-top: 15px; text-align: center;">
-            <input type="file" id="logo-upload" accept="image/*" style="display: none;" onchange="handleLogoUpload(event)"><button onclick="document.getElementById('logo-upload').click()" style="padding: 10px 15px; background: #444; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px;">🖼️ Загрузить логотип для PDF</button><div id="logo-preview" style="margin-top: 10px; display: flex; justify-content: center; align-items: center; gap: 10px;"></div>
+            <input type="file" id="logo-upload" accept="image/*" style="display: none;" onchange="handleLogoUpload(event)"><button onclick="document.getElementById('logo-upload').click()" style="padding: 10px 15px; background: #222; border: 1px solid #444; color: #00c2ff; border-radius: 8px; cursor: pointer; font-size: 14px;">🖼️ Логотип для PDF</button><div id="logo-preview" style="margin-top: 10px; display: flex; justify-content: center; align-items: center; gap: 10px;"></div>
         </div>
-        <div class="export-buttons" id="export-buttons" style="display: none;"><button class="btn-export btn-pdf" onclick="downloadPDF()">📄 Скачать PDF</button><button class="btn-export btn-share" onclick="shareEstimate()">📤 Отправить</button></div>
+        <div class="export-buttons" id="export-buttons" style="display: none;"><button class="btn-export btn-pdf" onclick="downloadPDF()">📄 PDF</button><button class="btn-export btn-share" onclick="shareEstimate()">📤 Отправить</button></div>
     </div>
 </div>
 
@@ -244,36 +255,45 @@
     <div class="container">
         <h2>Финансы</h2><div class="divider">ИЛИ ВВЕДИТЕ ВРУЧНУЮ</div>
 
-        <div style="background: #151515; padding: 20px; border-radius: 16px; border: 1px solid #333; box-shadow: 0 8px 20px rgba(0,0,0,0.4); margin-bottom: 20px;">
-            <div class="form-group">
-                <label>Тип операции</label>
-                <select id="fin-type" style="background: #0a0a0a; border: 1px solid #222; font-weight: bold; color: #00c2ff;">
+        <div class="form-card">
+            <div class="input-wrapper">
+                <select id="fin-type">
                     <option value="income">💰 Приход</option>
                     <option value="expense">💸 Расход</option>
                 </select>
+                <label style="top: -10px; left: 10px; font-size: 12px; color: #888;">Тип операции</label>
             </div>
 
-            <div class="form-group">
+            <div class="input-wrapper">
+                <input type="text" id="fin-category" placeholder=" ">
                 <label>На что? (Категория)</label>
-                <input type="text" id="fin-category" placeholder="Например: Бензин" style="background: #0a0a0a; border: 1px solid #222;">
             </div>
 
-            <div class="form-group">
+            <div class="input-wrapper">
+                <input type="number" id="fin-amount" placeholder=" ">
                 <label>Сумма (₽)</label>
-                <input type="number" id="fin-amount" placeholder="0" style="background: #0a0a0a; border: 1px solid #222;">
             </div>
 
-            <button onclick="addFinanceManual()" class="btn-add">Добавить</button>
+            <button onclick="addFinanceManual()" class="btn-add" style="margin-top: 10px;">Добавить</button>
         </div>
 
-        <div class="list-container" style="background: #111; padding: 15px; margin: 0;"><div id="finance-list"></div><div class="finance-balance"><span>Баланс:</span><span id="finance-balance-sum" style="color: #00c2ff;">0 ₽</span></div><button onclick="clearAllFinance()" style="width: 100%; margin-top: 15px; padding: 10px; background: #ff4444; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">🗑 Очистить все записи</button></div>
+        <div class="list-container" style="background: #111; padding: 15px; margin: 0;"><div id="finance-list"></div><div class="finance-balance"><span>Баланс:</span><span id="finance-balance-sum" style="color: #00c2ff; font-size: 20px; font-weight: bold;">0 ₽</span></div><button onclick="clearAllFinance()" style="width: 100%; margin-top: 15px; padding: 10px; background: #ff4444; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">🗑 Очистить все</button></div>
     </div>
 </div>
 
 <div id="view-diary" class="hidden" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
     <div style="width: 100%; max-width: 500px; margin-bottom: 10px;"><button class="back-btn" onclick="switchView('home')">← Назад</button></div>
     <div class="container">
-        <h2>Дневник работ</h2><div class="divider">ЗАПИСИ О ХОДЕ РАБОТ</div><div class="form-group"><textarea id="diary-input" rows="3" placeholder="Что сегодня сделали?"></textarea></div><button id="add-diary-btn" class="btn-add" style="background: #007bff;">Добавить запись</button>
+        <h2>Дневник работ</h2><div class="divider">ЗАПИСИ О ХОДЕ РАБОТ</div>
+
+        <div class="form-card">
+            <div class="input-wrapper">
+                <textarea id="diary-input" rows="3" placeholder=" "></textarea>
+                <label>введите текст</label>
+            </div>
+            <button id="add-diary-btn" class="btn-add">Добавить запись</button>
+        </div>
+
         <div class="list-container" style="background: #111; padding: 15px; margin-top: 20px;"><div id="diary-list"></div><button onclick="clearAllDiary()" style="width: 100%; margin-top: 15px; padding: 10px; background: #ff4444; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">🗑 Очистить дневник</button></div>
     </div>
 </div>
