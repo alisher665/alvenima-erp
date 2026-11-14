@@ -469,9 +469,37 @@ function parseFinanceVoice(lower) {
 }
 
 function parseDiaryVoice(lower) {
-    const now = new Date();
-    diaryData.push({ id: Date.now(), text: lower.charAt(0).toUpperCase() + lower.slice(1), date: now.toLocaleDateString('ru-RU'), time: now.toLocaleTimeString('ru-RU', {hour: '2-digit', minute:'2-digit'}) });
-    localStorage.setItem(getStorageKey('diary'), JSON.stringify(diaryData)); renderDiary(); statusDiv.innerText = "Запись добавлена!";
+    const inputEl = document.getElementById('diary-input');
+
+    // Если сказали "Сохрани" или "Добавь" (и при этом есть текст в поле)
+    if ((lower.includes('сохрани') || lower.includes('добавь') || lower.includes('запиши')) && inputEl.value.trim() !== '') {
+        const now = new Date();
+        diaryData.push({
+            id: Date.now(),
+            text: inputEl.value.trim(),
+            date: now.toLocaleDateString('ru-RU'),
+            time: now.toLocaleTimeString('ru-RU', {hour: '2-digit', minute:'2-digit'})
+        });
+        localStorage.setItem(getStorageKey('diary'), JSON.stringify(diaryData));
+        renderDiary();
+
+        inputEl.value = ''; // Очищаем поле после сохранения
+        statusDiv.innerText = "✅ Запись сохранена!";
+        speak("Сохранено");
+        return;
+    }
+
+    // Если просто диктуют текст — дописываем в поле
+    let cleanText = lower.replace(/сохрани|добавь|запиши/g, '').trim();
+
+    if (cleanText.length > 0) {
+        if (inputEl.value.trim() !== '') {
+            inputEl.value += ' ' + cleanText;
+        } else {
+            inputEl.value = cleanText.charAt(0).toUpperCase() + cleanText.slice(1);
+        }
+        statusDiv.innerText = "📝 Текст добавлен в поле. Скажите 'Сохрани', чтобы записать.";
+    }
 }
 
 // ==========================================
