@@ -212,12 +212,43 @@
     <div class="container">
         <h2>Склад материалов</h2>
 
+        <!-- БЛОК ПРЕДУПРЕЖДЕНИЙ -->
+        <div id="wh-warning-block" style="display: none; background: rgba(255,68,68,0.1); border: 1px solid #ff4444; border-radius: 12px; padding: 15px; margin-bottom: 15px; color: #ff4444; font-size: 14px;">
+            <b>⚠️ Внимание! Заканчивается:</b>
+            <div id="wh-warning-list" style="margin-top: 5px; color: #ffcccc;"></div>
+        </div>
+
+        <!-- ПОИСК И ФИЛЬТРЫ -->
+        <div class="form-card" style="padding: 15px; margin-bottom: 15px;">
+            <div class="input-wrapper" style="margin-bottom: 10px;">
+                <input type="text" id="wh-search" placeholder=" " oninput="renderWarehouse()">
+                <label>🔍 Поиск по складу</label>
+            </div>
+            <div class="filter-container">
+                <button class="filter-btn active" data-filter="all" onclick="setWarehouseFilter('all')">Все</button>
+                <button class="filter-btn" data-filter="low" onclick="setWarehouseFilter('low')">Заканчивается</button>
+                <button class="filter-btn" data-filter="out" onclick="setWarehouseFilter('out')">Нет в наличии</button>
+            </div>
+        </div>
+
         <!-- ФОРМА ДОБАВЛЕНИЯ/ПРИХОДА -->
         <div class="divider">ПРИХОД / ДОБАВИТЬ МАТЕРИАЛ</div>
         <div class="form-card" id="wh-form-card">
             <div class="input-wrapper">
                 <input type="text" id="wh-name" placeholder=" ">
                 <label>Название материала</label>
+            </div>
+
+            <div class="input-wrapper">
+                <select id="wh-category">
+                    <option value="Расходники">Расходники</option>
+                    <option value="Инструмент">Инструмент</option>
+                    <option value="Электрика">Электрика</option>
+                    <option value="Сантехника">Сантехника</option>
+                    <option value="Стройматериалы">Стройматериалы</option>
+                    <option value="Прочее">Прочее</option>
+                </select>
+                <label>Категория</label>
             </div>
 
             <div style="display: flex; gap: 10px;">
@@ -250,8 +281,9 @@
 
         <!-- СПИСОК МАТЕРИАЛОВ -->
         <div class="list-container" style="background: #111; padding: 15px; margin-top: 20px; border-radius: 12px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <div class="list-header-row">
                 <h3 class="list-header" style="margin: 0;">Остатки на складе</h3>
+                <button class="btn-pdf-small" onclick="exportWarehousePDF()">📄 PDF</button>
             </div>
 
             <div id="warehouse-list"></div>

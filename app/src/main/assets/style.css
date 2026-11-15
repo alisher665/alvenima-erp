@@ -769,3 +769,74 @@ input:focus, select:focus, textarea:focus {
     text-overflow: ellipsis;
     box-shadow: 0 0 10px rgba(0, 194, 255, 0.2);
 }
+/* ==========================================
+   НОВЫЕ СТИЛИ ДЛЯ СКЛАДА (ФИЛЬТРЫ И КАТЕГОРИИ)
+   ========================================== */
+
+.filter-btn {
+    background: #151515;
+    border: 1px solid #333;
+    color: #888;
+    padding: 8px 15px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+}
+
+.filter-btn:hover, .filter-btn:active {
+    border-color: #00c2ff;
+    color: #fff;
+}
+
+.filter-btn.active {
+    background: linear-gradient(135deg, #00c2ff, #0077ff);
+    border-color: #00c2ff;
+    color: #000;
+    box-shadow: 0 0 10px rgba(0, 194, 255, 0.4);
+}
+
+.filter-container {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 15px;
+}
+
+#wh-category {
+    background-color: #151515 !important;
+    color: #fff !important;
+}
+
+#wh-category option {
+    background-color: #151515;
+    color: #fff;
+}
+
+.list-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.btn-pdf-small {
+    background: #ff4444;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    width: auto;
+    margin: 0;
+    box-shadow: 0 4px 10px rgba(255, 68, 68, 0.3);
+    transition: all 0.2s;
+}
+
+.btn-pdf-small:active {
+    transform: scale(0.95);
+}
