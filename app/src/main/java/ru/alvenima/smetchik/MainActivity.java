@@ -41,18 +41,10 @@ import org.vosk.Model;
 import org.vosk.Recognizer;
 import org.vosk.android.StorageService;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.InetAddress;
-import java.net.ServerSocket;
-import java.net.Socket;
 import java.util.Locale;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -62,8 +54,6 @@ public class MainActivity extends AppCompatActivity {
     private static final String TAG = "VoskDebug";
 
     private WebView webView;
-    private ServerSocket serverSocket;
-    private ExecutorService serverExecutor;
 
     private Model model;
     private Recognizer recognizer;
@@ -186,10 +176,12 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        // Устанавливаем обычный WebViewClient (без SSL-ошибок)
         webView.setWebViewClient(new WebViewClient());
         setContentView(webView);
 
-        startLocalServer();
+        // Открываем файл напрямую из assets. Никаких серверов и портов.
+        webView.loadUrl("file:///android_asset/index.html");
     }
 
     // ПОЛУЧАЕМ РЕЗУЛЬТАТ ВЫБОРА ФАЙЛА
@@ -479,89 +471,6 @@ public class MainActivity extends AppCompatActivity {
         runOnUiThread(() -> Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show());
     }
 
-    private void startLocalServer() {
-        serverExecutor = Executors.newCachedThreadPool(); // Меняем на пул потоков
-        serverExecutor.execute(() -> {
-            try {
-                serverSocket = new ServerSocket(8080, 0, InetAddress.getByName("127.0.0.1"));
-                runOnUiThread(() -> webView.loadUrl("http://127.0.0.1:8080/index.html"));
-                while (!serverSocket.isClosed()) {
-                    Socket socket = serverSocket.accept();
-                    // Отправляем каждый запрос в отдельный поток, чтобы не было зависаний
-                    serverExecutor.execute(() -> handleRequest(socket));
-                }
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        });
-    }
-
-    private void handleRequest(Socket socket) {
-        try {
-            InputStream input = socket.getInputStream();
-            OutputStream output = socket.getOutputStream();
-            byte[] buffer = new byte[2048];
-            int bytesRead = input.read(buffer);
-            if (bytesRead == -1) return;
-            String request = new String(buffer, 0, bytesRead);
-
-            String filePath = "index.html";
-            if (request.startsWith("GET /")) {
-                String[] parts = request.split(" ");
-                if (parts.length > 1 && !parts[1].equals("/")) {
-                    filePath = parts[1].substring(1);
-                    if (filePath.contains("?")) {
-                        filePath = filePath.split("\\?")[0]; // Убираем GET параметры
-                    }
-                }
-            }
-
-            // Защита от выхода за пределы папки assets
-            if (filePath.contains("..")) {
-                output.write("HTTP/1.1 403 Forbidden\r\n\r\n".getBytes());
-                output.flush();
-                socket.close();
-                return;
-            }
-
-            try {
-                // Правильное и безопасное чтение файла
-                InputStream fileStream = getAssets().open(filePath);
-                ByteArrayOutputStream byteBuffer = new ByteArrayOutputStream();
-                int bufferSize = 1024;
-                byte[] bufferFile = new byte[bufferSize];
-                int len = 0;
-                while ((len = fileStream.read(bufferFile)) != -1) {
-                    byteBuffer.write(bufferFile, 0, len);
-                }
-                byte[] fileBytes = byteBuffer.toByteArray();
-                fileStream.close();
-
-                String mimeType = "text/html";
-                if (filePath.endsWith(".js")) mimeType = "application/javascript";
-                if (filePath.endsWith(".css")) mimeType = "text/css";
-                if (filePath.endsWith(".png")) mimeType = "image/png";
-                if (filePath.endsWith(".jpg") || filePath.endsWith(".jpeg")) mimeType = "image/jpeg";
-                if (filePath.endsWith(".svg")) mimeType = "image/svg+xml";
-
-                String header = "HTTP/1.1 200 OK\r\n"
-                        + "Content-Type: " + mimeType + "\r\n"
-                        + "Cache-Control: no-cache, no-store, must-revalidate\r\n"
-                        + "Pragma: no-cache\r\n"
-                        + "Expires: 0\r\n"
-                        + "Connection: close\r\n\r\n";
-                output.write(header.getBytes());
-                output.write(fileBytes);
-            } catch (IOException e) {
-                output.write("HTTP/1.1 404 Not Found\r\n\r\n".getBytes());
-            }
-            output.flush();
-            socket.close();
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
@@ -584,8 +493,6 @@ public class MainActivity extends AppCompatActivity {
                 audioRecord.release();
             }
             if (recognizer != null) recognizer.close();
-            if (serverSocket != null) serverSocket.close();
-            if (serverExecutor != null) serverExecutor.shutdown();
             if (tts != null) {
                 tts.stop();
                 tts.shutdown();

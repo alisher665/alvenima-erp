@@ -194,17 +194,19 @@ body {
 }
 
 .radial-btn {
-    background: #111;
-    border: 1px solid #222;
-    border-radius: 20px;
+    background: linear-gradient(145deg, #1a1c23, #0d0e12);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 24px;
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    color: #888;
+    color: #fff;
     cursor: pointer;
-    transition: all 0.3s ease;
-    box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    box-shadow: 5px 5px 15px rgba(0, 0, 0, 0.6),
+               -2px -2px 10px rgba(255, 255, 255, 0.03),
+               inset 0 0 0 1px rgba(255, 255, 255, 0.02);
     position: relative;
     overflow: hidden;
 }
@@ -212,22 +214,70 @@ body {
 .radial-btn::before {
     content: '';
     position: absolute;
-    top: 0; left: 0; width: 100%; height: 100%;
-    background: radial-gradient(circle at center, rgba(0, 194, 255, 0.15) 0%, transparent 70%);
+    top: 0; left: 0; right: 0; bottom: 0;
+    border-radius: 24px;
+    background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 100%);
     opacity: 0;
-    transition: opacity 0.3s;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
 }
 
 .radial-btn:hover, .radial-btn:active {
-    border-color: #00c2ff;
-    color: #fff;
-    transform: translateY(-3px);
-    box-shadow: 0 5px 20px rgba(0, 194, 255, 0.2);
+    transform: translateY(-5px);
+    border-color: rgba(0, 194, 255, 0.3);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.8),
+                0 0 20px rgba(0, 194, 255, 0.1),
+                inset 0 0 0 1px rgba(0, 194, 255, 0.2);
 }
 
-.radial-btn:hover::before { opacity: 1; }
+.radial-btn:hover::before {
+    opacity: 1;
+}
 
-.radial-btn .icon { font-size: 28px; margin-bottom: 8px; filter: drop-shadow(0 0 5px rgba(255,255,255,0.3)); }
+.radial-btn .icon {
+    font-size: 28px;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: all 0.3s ease;
+    z-index: 1;
+}
+
+.radial-btn .icon svg {
+    width: 34px;
+    height: 34px;
+    stroke-width: 1.5;
+    transition: all 0.3s ease;
+}
+
+/* Индивидуальные цвета для каждой иконки */
+.btn-smeta .icon svg { color: #00ff88; filter: drop-shadow(0 0 8px rgba(0, 255, 136, 0.4)); }
+.btn-reminders .icon svg { color: #ff9800; filter: drop-shadow(0 0 8px rgba(255, 152, 0, 0.4)); }
+.btn-finance .icon svg { color: #ffd700; filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.4)); }
+.btn-settings .icon svg { color: #b0bec5; filter: drop-shadow(0 0 8px rgba(176, 190, 197, 0.3)); }
+.btn-diary .icon svg { color: #00c2ff; filter: drop-shadow(0 0 8px rgba(0, 194, 255, 0.4)); }
+.btn-warehouse .icon svg { color: #e91e63; filter: drop-shadow(0 0 8px rgba(233, 30, 99, 0.4)); }
+
+.radial-btn:hover .icon svg,
+.radial-btn:active .icon svg {
+    filter: drop-shadow(0 0 12px currentColor);
+    transform: scale(1.1);
+}
+
+.radial-btn .text {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #aaa;
+    z-index: 1;
+    transition: color 0.3s ease;
+}
+
+.radial-btn:hover .text, .radial-btn:active .text {
+    color: #fff;
+}
 .radial-btn .text { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
 
 .btn-smeta { grid-area: 1 / 1 / 2 / 2; }
@@ -290,21 +340,22 @@ h2 {
 }
 
 .divider {
-    font-size: 10px;
-    color: #555;
+    font-size: 11px; /* Чуть увеличили размер для читаемости */
+    color: #9ea7b3; /* Светло-серый/голубоватый вместо темного #555 */
     text-transform: uppercase;
     letter-spacing: 2px;
     margin-bottom: 20px;
     display: flex;
     align-items: center;
     gap: 10px;
+    font-weight: 600; /* Добавили жирности для контраста */
 }
 
 .divider::after {
     content: '';
     flex: 1;
     height: 1px;
-    background: linear-gradient(90deg, #333, transparent);
+    background: linear-gradient(90deg, #4a5568, transparent); /* Линия стала чуть светлее */
 }
 
 .form-group {
@@ -701,4 +752,20 @@ input:focus, select:focus, textarea:focus {
 
 .btn-add:active::after {
     left: 150%;
+}
+
+/* Плашка с названием объекта на внутренних экранах */
+.global-object-badge {
+    background: rgba(0, 194, 255, 0.1);
+    border: 1px solid #00c2ff;
+    color: #00c2ff;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: bold;
+    max-width: 60%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-shadow: 0 0 10px rgba(0, 194, 255, 0.2);
 }

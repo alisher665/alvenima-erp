@@ -8,9 +8,6 @@ let pendingItemId = null;
 let currentView = null;
 
 // Глобальное состояние открытых аккордеонов.
-// Ключ: 'smeta' | 'finance' | 'diary'. Значение: Set с id открытых блоков.
-// id уникальны по префиксу (smeta-…, finance-…, diary-…), поэтому год/месяц/день
-// хранятся в одном Set без конфликтов.
 const openAccordions = {
     smeta: new Set(),
     finance: new Set(),
@@ -21,7 +18,6 @@ function clearAccordionState(screen) {
     if (openAccordions[screen]) openAccordions[screen].clear();
 }
 
-// По вашему правилу отладка только в statusDiv, не в консоль.
 function logStatus(msg) {
     if (statusDiv) {
         statusDiv.innerText = msg;
@@ -61,6 +57,10 @@ function loadSettingsUI() {
 
     const autosaveCb = document.getElementById('setting-autosave');
     if (autosaveCb) autosaveCb.checked = settings.autosave || false;
+
+    if (typeof loadLogo === 'function') {
+        loadLogo();
+    }
 }
 
 window.exportData = function() {
@@ -203,27 +203,20 @@ window.selectPersonalMode = function() {
 };
 
 window.switchView = function(viewId) {
-    // 1) Очищаем состояние аккордеонов ТОЛЬКО того экрана, с которого уходим.
-    //    Это гарантирует п.6 ТЗ: при повторном входе всё свёрнуто.
     if (currentMicMode === 'smeta')   clearAccordionState('smeta');
     if (currentMicMode === 'finance') clearAccordionState('finance');
     if (currentMicMode === 'diary')   clearAccordionState('diary');
 
-    // 2) Скрываем все экраны, показываем нужный
     document.querySelectorAll('[id^="view-"]').forEach(el => el.classList.add('hidden'));
     document.getElementById('view-' + viewId).classList.remove('hidden');
 
-    // 3) Запоминаем текущий экран
     currentMicMode = viewId;
     currentView = viewId;
 
-    // 4) Перерисовываем экран, в который входим.
-    //    Состояние уже пустое (почистили в п.1 при прошлом выходе) — всё свёрнуто.
     if (viewId === 'smeta')   renderEstimate();
     if (viewId === 'finance') renderFinance();
     if (viewId === 'diary')   renderDiary();
 
-    // 5) Микрофон
     let micBtn = document.getElementById('floating-mic');
     if (viewId === 'splash' || viewId === 'objects') {
         micBtn.classList.add('hidden');
@@ -238,11 +231,17 @@ window.switchView = function(viewId) {
         }
     }
 
-    // 6) Прочее
     statusDiv.innerText = '';
     if (viewId === 'objects') renderSplash();
     if (viewId === 'home') document.getElementById('current-object-name').innerText = currentObject || 'Не выбран';
     if (viewId === 'settings') loadSettingsUI();
+
+    const objectName = currentObject || 'Не выбран';
+    const badgeIds = ['badge-smeta', 'badge-finance', 'badge-diary', 'badge-reminders', 'badge-warehouse', 'badge-settings'];
+    badgeIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = '📁 ' + objectName;
+    });
 
     logStatus(`Экран: ${viewId}. Аккордеоны экрана-источника сброшены.`);
 };
@@ -701,14 +700,12 @@ window.removeLogo = function() { localStorage.removeItem('my_logo'); updateLogoP
 
 let currentEstimate = JSON.parse(localStorage.getItem(getStorageKey('estimate'))) || [];
 currentEstimate = currentEstimate.map((item, index) => { if (!item.date) item.date = new Date().toLocaleDateString('ru-RU'); if (!item.id) item.id = Date.now() + index; return item; });
-function getTodayParts() { let today = new Date(); return { year: today.getFullYear().toString(), month: ('0' + (today.getMonth() + 1)).slice(-2), day: today.toLocaleDateString('ru-RU') }; }
 
 function toggleAccordion(id, iconId) {
     const c = document.getElementById(id);
     const i = document.getElementById(iconId);
     if (!c) return;
 
-    // Определяем экран по префиксу id, чтобы синхронизировать нужный Set
     let screen = null;
     if (id.startsWith('smeta-')) screen = 'smeta';
     else if (id.startsWith('finance-')) screen = 'finance';
@@ -750,7 +747,7 @@ function renderEstimate() {
         grandTotal += item.total;
     });
 
-    const state = openAccordions.smeta; // живой Set, читаем при генерации
+    const state = openAccordions.smeta;
     let sortedYears = Object.keys(tree).sort((a, b) => parseInt(b) - parseInt(a));
     let fullHtml = '';
 
@@ -841,7 +838,9 @@ function addToEstimate() {
     localStorage.setItem(getStorageKey('estimate'), JSON.stringify(currentEstimate));
     document.getElementById('work-name').value = ''; document.getElementById('work-qty').value = ''; document.getElementById('work-price').value = '';
     renderEstimate();
-}   window.deleteEstimateItem = (id) => {
+}
+
+window.deleteEstimateItem = (id) => {
     currentEstimate = currentEstimate.filter(i => i.id !== id);
     localStorage.setItem(getStorageKey('estimate'), JSON.stringify(currentEstimate));
     renderEstimate();
@@ -851,13 +850,34 @@ document.getElementById('add-btn').addEventListener('click', addToEstimate);
 let financeData = JSON.parse(localStorage.getItem(getStorageKey('finance'))) || [];
 
 window.addFinanceManual = function() {
-    const type = document.getElementById('fin-type').value; const category = document.getElementById('fin-category').value.trim(); const amountRaw = document.getElementById('fin-amount').value;
+    const type = document.getElementById('fin-type').value;
+    const category = document.getElementById('fin-category').value.trim();
+    const amountRaw = document.getElementById('fin-amount').value;
     const amount = parseFloat(String(amountRaw).replace(',', '.'));
-    if (!category || isNaN(amount) || amount <= 0) { alert("Заполните название и сумму!"); return; }
-    financeData.push({ id: Date.now(), type: type, category: category.charAt(0).toUpperCase() + category.slice(1), amount: amount, date: new Date().toLocaleDateString('ru-RU') });
+
+    if (!category || isNaN(amount) || amount <= 0) {
+        alert("Заполните название и сумму!");
+        return;
+    }
+
+    financeData.push({
+        id: Date.now(),
+        type: type,
+        category: category.charAt(0).toUpperCase() + category.slice(1),
+        amount: amount,
+        date: new Date().toLocaleDateString('ru-RU')
+    });
+
     localStorage.setItem(getStorageKey('finance'), JSON.stringify(financeData));
-    document.getElementById('fin-category').value = ''; document.getElementById('fin-amount').value = '';
-    statusDiv.innerText = "✅ Запись добавлена вручную!"; statusDiv.style.color = "#00ff88"; setTimeout(()=>{statusDiv.innerText='';}, 2000);
+
+    document.getElementById('fin-category').value = '';
+    document.getElementById('fin-amount').value = '';
+
+    renderFinance();
+
+    statusDiv.innerText = "✅ Запись добавлена вручную!";
+    statusDiv.style.color = "#00ff88";
+    setTimeout(()=>{statusDiv.innerText='';}, 2000);
 };
 
 function renderFinance() {
@@ -865,14 +885,14 @@ function renderFinance() {
     if (!listDiv) return;
 
     let tree = {}; let grandTotal = 0;
-    financeData.forEach(item => {                       // было currentFinance
+    financeData.forEach(item => {
         let parts = item.date.split('.');
         let year = parts[2]; let month = parts[1];
         if (!tree[year]) tree[year] = {};
         if (!tree[year][month]) tree[year][month] = {};
         if (!tree[year][month][item.date]) tree[year][month][item.date] = [];
         tree[year][month][item.date].push(item);
-        grandTotal += item.amount;                      // было item.total
+        grandTotal += item.amount;
     });
 
     const state = openAccordions.finance;
@@ -881,7 +901,7 @@ function renderFinance() {
 
     sortedYears.forEach(year => {
         let yearTotal = 0;
-        Object.values(tree[year]).forEach(m => Object.values(m).forEach(d => d.forEach(i => yearTotal += i.amount)));  // amount
+        Object.values(tree[year]).forEach(m => Object.values(m).forEach(d => d.forEach(i => yearTotal += i.amount)));
 
         const yearContentId = `finance-year-content-${year}`;
         const yearIconId = `finance-year-icon-${year}`;
@@ -899,7 +919,7 @@ function renderFinance() {
 
         Object.keys(tree[year]).sort((a, b) => parseInt(b) - parseInt(a)).forEach(month => {
             let key = year + '-' + month; let monthTotal = 0;
-            Object.values(tree[year][month]).forEach(d => d.forEach(i => monthTotal += i.amount));  // amount
+            Object.values(tree[year][month]).forEach(d => d.forEach(i => monthTotal += i.amount));
 
             const monthContentId = `finance-month-content-${key}`;
             const monthIconId = `finance-month-icon-${key}`;
@@ -917,7 +937,7 @@ function renderFinance() {
 
             Object.keys(tree[year][month]).sort((a, b) => parseInt(b.split('.')[0]) - parseInt(a.split('.')[0])).forEach(date => {
                 let items = tree[year][month][date]; let dayTotal = 0;
-                items.forEach(i => dayTotal += i.amount);   // amount
+                items.forEach(i => dayTotal += i.amount);
                 let safeId = date.replace(/\./g, '_');
 
                 const dayContentId = `finance-day-content-${safeId}`;
@@ -957,6 +977,20 @@ function renderFinance() {
     });
 
     listDiv.innerHTML = fullHtml;
+
+    const balanceEl = document.getElementById('finance-balance-sum');
+    if (balanceEl) {
+        let incomeTotal = 0;
+        let expenseTotal = 0;
+        financeData.forEach(item => {
+            if (item.type === 'income') incomeTotal += item.amount;
+            if (item.type === 'expense') expenseTotal += item.amount;
+        });
+        let balance = incomeTotal - expenseTotal;
+        balanceEl.innerText = balance.toLocaleString('ru-RU') + ' ' + (settings.currency || '₽');
+        balanceEl.style.color = balance >= 0 ? '#00ff88' : '#ff4444';
+    }
+
     logStatus(`Финансы обновлены. Открыто блоков: ${openAccordions.finance.size}`);
 }
 window.deleteFinance = (id) => {
@@ -1025,7 +1059,7 @@ function renderDiary() {
                     <div id="${dayContentId}" class="${dayOpen ? '' : 'hidden'}" style="background: #111; padding: 0 12px; border-radius: 0 0 6px 6px;">`;
 
                 [...items].sort((a, b) => b.id - a.id).forEach(item => {
-                    fullHtml += `<div class="diary-item"><div class="item-info"><div class="item-name">${item.text || item.name || ''}</div></div><button class="delete-item-btn" onclick="deleteDiaryItem(${item.id})">✕</button></div>`;
+                    fullHtml += `<div class="diary-item"><div class="item-info"><div class="item-name">${item.text || item.name || ''}</div></div><button class="delete-item-btn" onclick="deleteDiary(${item.id})">✕</button></div>`;
                 });
                 fullHtml += `</div></div>`;
             });
@@ -1100,58 +1134,159 @@ window.deleteReminder = (id) => { remindersData = remindersData.filter(r => r.id
 window.clearAllReminders = () => { if (confirm("Удалить все напоминания?")) { remindersData = []; localStorage.setItem(getStorageKey('reminders'), JSON.stringify(remindersData)); renderReminders(); } };
 
 let warehouseData = JSON.parse(localStorage.getItem(getStorageKey('warehouse'))) || [];
-document.getElementById('add-wh-btn').addEventListener('click', () => {
-    const nameInput = (document.getElementById('wh-name').value || '').trim(); const qtyRaw = document.getElementById('wh-qty').value; const unit = document.getElementById('wh-unit').value; const priceRaw = document.getElementById('wh-price').value;
-    const qty = parseFloat(String(qtyRaw).replace(',', '.')); const price = parseFloat(String(priceRaw).replace(',', '.')) || 0;
-    if (!nameInput || isNaN(qty)) { alert("Заполните название и количество!"); return; }
-    const existingIndex = warehouseData.findIndex(item => item.name.toLowerCase() === nameInput.toLowerCase());
-    if (existingIndex !== -1) {
-        warehouseData[existingIndex].qty += qty;
-        if (price > 0) { warehouseData[existingIndex].price = price; }
-        warehouseData[existingIndex].id = Date.now();
-    } else { warehouseData.push({ id: Date.now(), name: nameInput, qty, unit, price }); }
-    localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(warehouseData));
-    document.getElementById('wh-name').value = ''; document.getElementById('wh-qty').value = ''; document.getElementById('wh-price').value = '';
-    renderWarehouse();
-});
+let editingWarehouseId = null;
 
-function renderWarehouse() {
-    const listDiv = document.getElementById('warehouse-list');
-    if (warehouseData.length === 0) { listDiv.innerHTML = '<p style="color: #666; font-size: 14px; text-align: center;">Склад пуст</p>'; return; }
+window.renderWarehouse = function() {
+    const listEl = document.getElementById('warehouse-list');
+    const totalRow = document.getElementById('wh-total-row');
+    const totalSumEl = document.getElementById('wh-total-sum');
+
+    if (!listEl) return;
+
+    if (warehouseData.length === 0) {
+        listEl.innerHTML = '<p style="color: #666; text-align: center;">Склад пуст</p>';
+        if (totalRow) totalRow.style.display = 'none';
+        return;
+    }
+
     let html = '';
-    warehouseData.sort((a,b) => b.id - a.id).forEach(item => {
-        const isLowStock = item.qty < 10;
-        const qtyColor = isLowStock ? '#ff4444' : '#00ff88';
-        const warningIcon = isLowStock ? ' ⚠️' : '';
+    warehouseData.forEach(item => {
+        const total = (item.qty * item.price).toFixed(2);
         html += `
-        <div class="warehouse-item" style="border-left: 3px solid ${isLowStock ? '#ff4444' : '#00c2ff'}; display: flex; justify-content: space-between; align-items: center; padding-right: 10px;">
+        <div class="warehouse-item" style="display: flex; justify-content: space-between; align-items: center; background: #1a1a1a; padding: 12px; border-radius: 10px; margin-bottom: 10px; border: 1px solid #333;">
             <div class="warehouse-info" style="flex: 1;">
-                <div class="warehouse-name">${item.name}${warningIcon}</div>
-                <div class="warehouse-details">Остаток: <span style="color: ${qtyColor}; font-weight: bold;">${item.qty} ${item.unit}</span> • Цена: ${item.price} ₽</div>
+                <div class="warehouse-name" style="font-weight: bold; color: #fff; font-size: 15px;">${item.name}</div>
+                <div class="warehouse-details" style="color: #888; font-size: 13px; margin-top: 4px;">
+                    <span style="color: #00c2ff; font-weight: bold;">${item.qty} ${item.unit}</span> × ${item.price} ₽ = <span style="color: #00ff88;">${total} ₽</span>
+                </div>
             </div>
-            <div style="display: flex; gap: 8px; align-items: center;">
-                <button onclick="writeOffWarehouseItem(${item.id})" style="background: #ff9800; color: white; border: none; border-radius: 6px; padding: 6px 10px; font-size: 12px; cursor: pointer; font-weight: bold;">Списать</button>
-                <button class="delete-item-btn" onclick="deleteWarehouseItem(${item.id})">✕</button>
+            <div style="display: flex; gap: 5px; margin-left: 10px;">
+                <button onclick="consumeWarehouseItem(${item.id})" style="background: #222; border: 1px solid #444; color: #ff9800; border-radius: 8px; padding: 8px; cursor: pointer;" title="Списать">📤</button>
+                <button onclick="editWarehouseItem(${item.id})" style="background: #222; border: 1px solid #444; color: #00c2ff; border-radius: 8px; padding: 8px; cursor: pointer;" title="Редактировать">✏️</button>
+                <button onclick="deleteWarehouseItem(${item.id})" style="background: #222; border: 1px solid #444; color: #ff4444; border-radius: 8px; padding: 8px; cursor: pointer;" title="Удалить">✕</button>
             </div>
         </div>`;
     });
-    listDiv.innerHTML = html;
-}
+    listEl.innerHTML = html;
 
-window.writeOffWarehouseItem = function(id) {
+    const totalSum = warehouseData.reduce((sum, item) => sum + (item.qty * item.price), 0);
+    if (totalRow && totalSumEl) {
+        totalRow.style.display = 'flex';
+        totalSumEl.innerText = totalSum.toFixed(2) + ' ' + (settings.currency || '₽');
+    }
+};
+
+window.addWarehouseManual = function() {
+    const nameEl = document.getElementById('wh-name');
+    const qtyEl = document.getElementById('wh-qty');
+    const unitEl = document.getElementById('wh-unit');
+    const priceEl = document.getElementById('wh-price');
+
+    const name = nameEl.value.trim();
+    const qty = parseFloat(qtyEl.value);
+    const unit = unitEl.value;
+    const price = parseFloat(priceEl.value) || 0;
+
+    if (!name || isNaN(qty) || qty <= 0) {
+        logStatus("⚠️ Заполните название и количество");
+        return;
+    }
+
+    if (editingWarehouseId !== null) {
+        const index = warehouseData.findIndex(i => i.id === editingWarehouseId);
+        if (index !== -1) {
+            warehouseData[index] = { ...warehouseData[index], name, qty, unit, price };
+        }
+        editingWarehouseId = null;
+        const cancelBtn = document.getElementById('cancel-edit-wh-btn');
+        if (cancelBtn) cancelBtn.classList.add('hidden');
+        document.getElementById('add-wh-btn').innerText = "Добавить (Приход)";
+    } else {
+        const existingIndex = warehouseData.findIndex(i => i.name.toLowerCase() === name.toLowerCase() && i.unit === unit);
+        if (existingIndex !== -1) {
+            warehouseData[existingIndex].qty += qty;
+            if (price > 0) warehouseData[existingIndex].price = price;
+        } else {
+            warehouseData.push({ id: Date.now(), name, qty, unit, price });
+        }
+    }
+
+    localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(warehouseData));
+
+    nameEl.value = ''; qtyEl.value = ''; priceEl.value = '';
+
+    renderWarehouse();
+    logStatus("✅ Сохранено на склад");
+    speak("Сохранено");
+};
+
+window.editWarehouseItem = function(id) {
     const item = warehouseData.find(i => i.id === id);
     if (!item) return;
-    let amountStr = prompt(`Сколько списать "${item.name}"? (Остаток: ${item.qty} ${item.unit})`);
-    if (amountStr === null) return;
-    let amount = parseFloat(String(amountStr).replace(',', '.'));
-    if (isNaN(amount) || amount <= 0) { alert("Введите правильное число больше нуля!"); return; }
-    if (amount > item.qty) { if (!confirm(`Внимание! Вы пытаетесь списать ${amount}, а на складе только ${item.qty}. Продолжить (уйти в минус)?`)) { return; } }
-    item.qty -= amount;
-    item.id = Date.now();
+
+    document.getElementById('wh-name').value = item.name;
+    document.getElementById('wh-qty').value = item.qty;
+    document.getElementById('wh-unit').value = item.unit;
+    document.getElementById('wh-price').value = item.price;
+
+    editingWarehouseId = id;
+    const cancelBtn = document.getElementById('cancel-edit-wh-btn');
+    if (cancelBtn) cancelBtn.classList.remove('hidden');
+    document.getElementById('add-wh-btn').innerText = "Сохранить изменения";
+
+    const formCard = document.getElementById('wh-form-card');
+    if (formCard) formCard.scrollIntoView({ behavior: 'smooth' });
+    logStatus("✏️ Режим редактирования");
+};
+
+window.cancelEditWarehouse = function() {
+    editingWarehouseId = null;
+    document.getElementById('wh-name').value = '';
+    document.getElementById('wh-qty').value = '';
+    document.getElementById('wh-price').value = '';
+    const cancelBtn = document.getElementById('cancel-edit-wh-btn');
+    if (cancelBtn) cancelBtn.classList.add('hidden');
+    document.getElementById('add-wh-btn').innerText = "Добавить (Приход)";
+    logStatus("Редактирование отменено");
+};
+
+window.consumeWarehouseItem = function(id) {
+    const item = warehouseData.find(i => i.id === id);
+    if (!item) return;
+
+    let qtyToConsume = prompt(`Сколько списать: ${item.name} (${item.unit})? Остаток: ${item.qty}`, "1");
+    if (qtyToConsume === null) return;
+
+    qtyToConsume = parseFloat(qtyToConsume);
+    if (isNaN(qtyToConsume) || qtyToConsume <= 0) {
+        logStatus("⚠️ Неверное количество");
+        return;
+    }
+
+    if (qtyToConsume > item.qty) {
+        logStatus(`⚠️ Недостаточно! В наличии только ${item.qty} ${item.unit}`);
+        return;
+    }
+
+    item.qty -= qtyToConsume;
+    if (item.qty <= 0) {
+        warehouseData = warehouseData.filter(i => i.id !== id);
+    }
+
     localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(warehouseData));
     renderWarehouse();
+    logStatus("✅ Успешно списано");
+    speak("Списано");
 };
-window.deleteWarehouseItem = (id) => { warehouseData = warehouseData.filter(i => i.id !== id); localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(warehouseData)); renderWarehouse(); };
+
+window.deleteWarehouseItem = function(id) {
+    if (confirm("Удалить этот материал со склада?")) {
+        warehouseData = warehouseData.filter(i => i.id !== id);
+        localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(warehouseData));
+        renderWarehouse();
+        logStatus("🗑 Удалено");
+    }
+};
 
 function createPdfHtml() {
     const dateStr = new Date().toLocaleDateString('ru-RU'); const docNumber = Math.floor(Date.now() / 1000).toString().slice(-4);
