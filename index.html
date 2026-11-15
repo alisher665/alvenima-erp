@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ALVENIMA ERP</title>
+
+    <!-- Подключение библиотек для PDF -->
+    <script src="jspdf.umd.min.js"></script>
+    <script src="html2canvas.min.js"></script>
+
+    <!-- Библиотека иконок Lucide -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Подключение стилей -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="status">Загрузка модели...</div>
+
+<!-- ================= СТАРТОВЫЙ ЭКРАН (SPLASH) ================= -->
+<div id="view-splash" class="splash-container">
+    <div class="logo-wrapper">
+        <div class="logo">
+            <span class="letter" style="animation-delay: 0.1s">A</span>
+            <span class="letter" style="animation-delay: 0.2s">L</span>
+            <span class="letter" style="animation-delay: 0.3s">V</span>
+            <span class="letter" style="animation-delay: 0.4s">E</span>
+            <span class="letter" style="animation-delay: 0.5s">N</span>
+            <span class="letter" style="animation-delay: 0.6s">I</span>
+            <span class="letter" style="animation-delay: 0.7s">M</span>
+            <span class="letter" style="animation-delay: 0.8s">A</span>
+        </div>
+    </div>
+    <div class="logo-sub">ERP для бизнеса</div>
+</div>
+
+<!-- ================= СТРАНИЦА ВЫБОРА ОБЪЕКТА ================= -->
+<div id="view-objects" class="hidden" style="width: 100%; display: flex; flex-direction: column; align-items: center; padding: 20px;">
+    <h2 style="color: #00c2ff; margin-top: 40px; margin-bottom: 10px; font-size: 28px;">Ваши объекты</h2>
+    <p style="color: #888; margin-bottom: 30px;">Выберите объект для работы</p>
+
+    <div class="object-list" id="objects-list-container">
+        <!-- Сюда будут загружаться объекты -->
+    </div>
+
+    <div style="display: flex; gap: 10px; width: 100%; max-width: 400px; margin-top: 20px;">
+        <button class="add-object-btn btn-primary" onclick="addNewObjectPrompt()">
+            <span style="font-size: 20px;">+</span> Объект
+        </button>
+
+        <button class="add-object-btn btn-secondary" onclick="selectPersonalMode()">
+            <span style="font-size: 20px;">📝</span> Личное
+        </button>
+    </div>
+</div>
+
+<!-- ================= ГЛАВНОЕ МЕНЮ ================= -->
+<div id="view-home" class="hidden" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
+    <div class="home-header">
+        <a class="back-link" onclick="switchView('objects')">← Назад</a>
+        <div class="object-title">Объект:</div>
+        <div class="object-name" id="current-object-name">...</div>
+    </div>
+
+    <div class="radial-menu">
+        <button class="radial-btn btn-smeta" onclick="switchView('smeta')">
+            <span class="icon"><i data-lucide="clipboard-list"></i></span>
+            <span class="text">Смета</span>
+        </button>
+        <button class="radial-btn btn-reminders" onclick="switchView('reminders')">
+            <span class="icon"><i data-lucide="bell-ring"></i></span>
+            <span class="text">Напоминания</span>
+        </button>
+        <button class="radial-btn btn-finance" onclick="switchView('finance')">
+            <span class="icon"><i data-lucide="wallet"></i></span>
+            <span class="text">Финансы</span>
+        </button>
+
+        <button class="radial-btn btn-settings" onclick="switchView('settings')">
+            <span class="icon"><i data-lucide="settings"></i></span>
+            <span class="text">Настройки</span>
+        </button>
+
+        <!-- ЦЕНТРАЛЬНЫЙ МИКРОФОН УБРАН, ОСТАВЛЕНА ПУСТОТА ДЛЯ СЕТКИ -->
+        <div style="grid-area: 2 / 2 / 3 / 3;"></div>
+
+        <button class="radial-btn btn-diary" onclick="switchView('diary')">
+            <span class="icon"><i data-lucide="book-open"></i></span>
+            <span class="text">Дневник</span>
+        </button>
+        <button class="radial-btn btn-warehouse" onclick="switchView('warehouse')">
+            <span class="icon"><i data-lucide="package"></i></span>
+            <span class="text">Склад</span>
+        </button>
+    </div>
+</div>
+
+<!-- ЕДИНСТВЕННЫЙ ПЛАВАЮЩИЙ МИКРОФОН -->
+<button id="floating-mic" class="big-mic-btn hidden">🎤</button>
+
+<!-- ================= РАЗДЕЛ: НАСТРОЙКИ ================= -->
+<div id="view-settings" class="hidden" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
+    <div style="width: 100%; max-width: 500px; margin-bottom: 10px;"><button class="back-btn" onclick="switchView('home')">← Назад</button></div>
+    <div class="container">
+        <h2>Настройки</h2>
+
+        <div class="divider">РЕКВИЗИТЫ ДЛЯ PDF</div>
+        <div class="form-card" style="margin-bottom: 20px;">
+            <div class="input-wrapper">
+                <input type="text" id="set-company" placeholder=" ">
+                <label>Название компании / ФИО</label>
+            </div>
+            <div class="input-wrapper">
+                <input type="text" id="set-phone" placeholder=" ">
+                <label>Телефон</label>
+            </div>
+        </div>
+
+        <div class="divider">ИНТЕРФЕЙС</div>
+        <div class="form-card" style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; padding: 15px 20px;">
+            <span style="font-size: 16px; font-weight: bold; color: #fff;">Автосохранение при паузе</span>
+            <label class="switch">
+                <input type="checkbox" id="setting-autosave">
+                <span class="slider round"></span>
+            </label>
+        </div>
+        <div class="form-card" style="margin-bottom: 20px;">
+            <div class="input-wrapper">
+                <select id="set-currency">
+                    <option value="₽">Рубль (₽)</option>
+                    <option value="₸">Тенге (₸)</option>
+                    <option value="₴">Гривна (₴)</option>
+                    <option value="$">Доллар ($)</option>
+                    <option value="€">Евро (€)</option>
+                </select>
+                <label>Валюта</label>
+            </div>
+        </div>
+
+        <button class="btn-add" onclick="saveSettings()">Сохранить настройки</button>
+
+        <div class="divider" style="margin-top: 30px;">ДАННЫЕ</div>
+        <button class="btn-add" onclick="exportData()" style="background: #333; border: 1px solid #555; box-shadow: none; margin-bottom: 10px;">📤 Создать бэкап</button>
+        <button class="btn-danger" onclick="clearAllAppData()">🗑 Полностью очистить</button>
+    </div>
+</div>
+
+<!-- ================= ОСТАЛЬНЫЕ РАЗДЕЛЫ ================= -->
+<div id="view-reminders" class="hidden" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
+    <div style="width: 100%; max-width: 500px; margin-bottom: 10px;"><button class="back-btn" onclick="switchView('home')">← Назад</button></div>
+    <div class="container">
+        <h2>Напоминания</h2><div class="divider">ДИКТУЙТЕ ВРЕМЯ И ЗАДАЧУ</div>
+
+        <div class="form-card">
+            <div class="input-wrapper">
+                <input type="text" id="rem-text" placeholder=" ">
+                <label>О чём напомнить?</label>
+            </div>
+
+            <div style="display: flex; gap: 10px;">
+                <div class="input-wrapper" style="flex: 1;">
+                    <input type="date" id="rem-date" placeholder=" ">
+                    <label style="top: -10px; left: 10px; font-size: 12px; color: #888;">Дата</label>
+                </div>
+                <div class="input-wrapper" style="flex: 1;">
+                    <input type="time" id="rem-time" placeholder=" ">
+                    <label style="top: -10px; left: 10px; font-size: 12px; color: #888;">Время</label>
+                </div>
+            </div>
+
+            <button onclick="addReminderManual()" class="btn-add" style="margin-top: 10px;">Добавить</button>
+        </div>
+
+        <div class="list-container" style="background: #111; padding: 15px; margin: 0;">
+            <div id="reminders-list"></div>
+            <button onclick="clearAllReminders()" style="width: 100%; margin-top: 15px; padding: 10px; background: #ff4444; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">🗑 Очистить список</button>
+        </div>
+    </div>
+</div>
+
+<div id="view-warehouse" class="hidden" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
+    <div style="width: 100%; max-width: 500px; margin-bottom: 10px;"><button class="back-btn" onclick="switchView('home')">← Назад</button></div>
+    <div class="container">
+        <h2>Склад материалов</h2><div class="divider">ДОБАВИТЬ МАТЕРИАЛ ВРУЧНУЮ</div>
+
+        <div class="form-card">
+            <div class="input-wrapper">
+                <input type="text" id="wh-name" placeholder=" ">
+                <label>Название материала</label>
+            </div>
+
+            <div style="display: flex; gap: 10px;">
+                <div class="input-wrapper" style="flex: 2;">
+                    <input type="number" id="wh-qty" placeholder=" ">
+                    <label>Кол-во</label>
+                </div>
+                <div class="input-wrapper" style="flex: 1;">
+                    <select id="wh-unit">
+                        <option value="шт.">шт.</option>
+                        <option value="меш.">меш.</option>
+                        <option value="кг">кг</option>
+                        <option value="м.">м.</option>
+                        <option value="м²">м²</option>
+                    </select>
+                    <label>Ед.</label>
+                </div>
+            </div>
+
+            <div class="input-wrapper">
+                <input type="text" inputmode="decimal" id="wh-price" placeholder=" ">
+                <label>Цена закупки (₽)</label>
+            </div>
+
+            <button id="add-wh-btn" class="btn-add" style="margin-top: 10px;">Добавить на склад</button>
+        </div>
+
+        <div class="list-container" style="background: #111; padding: 15px; margin-top: 20px;"><h3 class="list-header">Остатки на складе</h3><div id="warehouse-list"></div></div>
+    </div>
+</div>
+
+<div id="view-smeta" class="hidden" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
+    <div style="width: 100%; max-width: 500px; margin-bottom: 10px;"><button class="back-btn" onclick="switchView('home')">← Назад</button></div>
+    <div class="container" id="form-container">
+        <h2>Добавить работу</h2><div class="divider">ИЛИ ВВЕДИТЕ ВРУЧНУЮ</div>
+
+        <div class="form-card">
+            <div class="input-wrapper">
+                <input type="text" id="work-name" placeholder=" " autocomplete="off">
+                <label>Название работы</label>
+            </div>
+
+            <div style="display: flex; gap: 10px;">
+                <div class="input-wrapper" style="flex: 2;">
+                    <input type="number" id="work-qty" placeholder=" ">
+                    <label>Кол-во</label>
+                </div>
+                <div class="input-wrapper" style="flex: 1;">
+                    <select id="work-unit">
+                        <option value="м²">м²</option>
+                        <option value="м.п.">м.п.</option>
+                        <option value="шт.">шт.</option>
+                        <option value="компл.">компл.</option>
+                    </select>
+                    <label>Ед. изм.</label>
+                </div>
+            </div>
+
+            <div class="input-wrapper">
+                <input type="number" id="work-price" placeholder=" ">
+                <label>Цена за единицу (₽)</label>
+            </div>
+
+            <button id="add-btn" class="btn-add" style="margin-top: 10px;">Добавить в смету</button>
+        </div>
+    </div>
+
+    <div class="list-container">
+        <h3 class="list-header">Текущая смета</h3><div id="estimate-list"></div>
+        <div class="total-row" id="total-row" style="display: none;"><span>Итого:</span><span id="total-sum">0 ₽</span></div>
+        <div style="margin-top: 20px; border-top: 1px solid #333; padding-top: 15px; text-align: center;">
+            <input type="file" id="logo-upload" accept="image/*" style="display: none;" onchange="handleLogoUpload(event)"><button onclick="document.getElementById('logo-upload').click()" style="padding: 10px 15px; background: #222; border: 1px solid #444; color: #00c2ff; border-radius: 8px; cursor: pointer; font-size: 14px;">🖼️ Логотип для PDF</button><div id="logo-preview" style="margin-top: 10px; display: flex; justify-content: center; align-items: center; gap: 10px;"></div>
+        </div>
+        <div class="export-buttons" id="export-buttons" style="display: none;"><button class="btn-export btn-pdf" onclick="downloadPDF()">📄 PDF</button><button class="btn-export btn-share" onclick="shareEstimate()">📤 Отправить</button></div>
+    </div>
+</div>
+
+<div id="view-finance" class="hidden" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
+    <div style="width: 100%; max-width: 500px; margin-bottom: 10px;"><button class="back-btn" onclick="switchView('home')">← Назад</button></div>
+    <div class="container">
+        <h2>Финансы</h2><div class="divider">ИЛИ ВВЕДИТЕ ВРУЧНУЮ</div>
+
+        <div class="form-card">
+            <div class="input-wrapper">
+                <select id="fin-type">
+                    <option value="income">💰 Приход</option>
+                    <option value="expense">💸 Расход</option>
+                </select>
+                <label style="top: -10px; left: 10px; font-size: 12px; color: #888;">Тип операции</label>
+            </div>
+
+            <div class="input-wrapper">
+                <input type="text" id="fin-category" placeholder=" ">
+                <label>На что? (Категория)</label>
+            </div>
+
+            <div class="input-wrapper">
+                <input type="number" id="fin-amount" placeholder=" ">
+                <label>Сумма (₽)</label>
+            </div>
+
+            <button onclick="addFinanceManual()" class="btn-add" style="margin-top: 10px;">Добавить</button>
+        </div>
+
+        <div class="list-container" style="background: #111; padding: 15px; margin: 0;"><div id="finance-list"></div><div class="finance-balance"><span>Баланс:</span><span id="finance-balance-sum" style="color: #00c2ff; font-size: 20px; font-weight: bold;">0 ₽</span></div><button onclick="clearAllFinance()" style="width: 100%; margin-top: 15px; padding: 10px; background: #ff4444; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">🗑 Очистить все</button></div>
+    </div>
+</div>
+
+<div id="view-diary" class="hidden" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
+    <div style="width: 100%; max-width: 500px; margin-bottom: 10px;"><button class="back-btn" onclick="switchView('home')">← Назад</button></div>
+    <div class="container">
+        <h2>Дневник работ</h2><div class="divider">ЗАПИСИ О ХОДЕ РАБОТ</div>
+
+        <div class="form-card">
+            <div class="input-wrapper">
+                <textarea id="diary-input" rows="3" placeholder=" "></textarea>
+                <label>введите текст</label>
+            </div>
+            <button id="add-diary-btn" class="btn-add">Добавить запись</button>
+        </div>
+
+        <div class="list-container" style="background: #111; padding: 15px; margin-top: 20px;"><div id="diary-list"></div><button onclick="clearAllDiary()" style="width: 100%; margin-top: 15px; padding: 10px; background: #ff4444; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">🗑 Очистить дневник</button></div>
+    </div>
+</div>
+
+<!-- ================= ПОДКЛЮЧЕНИЕ ЛОГИКИ ================= -->
+<script src="app.js"></script>
+
+</body>
+</html>
