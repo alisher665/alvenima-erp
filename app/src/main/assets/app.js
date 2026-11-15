@@ -1,17 +1,36 @@
 const statusDiv = document.getElementById('status');
 let isRecording = false;
-let openTodayAfterRender = false;
 let currentMicMode = 'splash';
 let awaitingConfirm = false;
 let pendingDeleteAction = null;
 let wasRecordingBeforeTts = false;
 let pendingItemId = null;
+let currentView = null;
+
+// Глобальное состояние открытых аккордеонов.
+// Ключ: 'smeta' | 'finance' | 'diary'. Значение: Set с id открытых блоков.
+// id уникальны по префиксу (smeta-…, finance-…, diary-…), поэтому год/месяц/день
+// хранятся в одном Set без конфликтов.
+const openAccordions = {
+    smeta: new Set(),
+    finance: new Set(),
+    diary: new Set()
+};
+
+function clearAccordionState(screen) {
+    if (openAccordions[screen]) openAccordions[screen].clear();
+}
+
+// По вашему правилу отладка только в statusDiv, не в консоль.
+function logStatus(msg) {
+    if (statusDiv) {
+        statusDiv.innerText = msg;
+        statusDiv.style.display = 'block';
+    }
+}
 
 const MONTH_NAMES = { "01": "Январь", "02": "Февраль", "03": "Март", "04": "Апрель", "05": "Май", "06": "Июнь", "07": "Июль", "08": "Август", "09": "Сентябрь", "10": "Октябрь", "11": "Ноябрь", "12": "Декабрь" };
 
-// ==========================================
-// ЛОГИКА ОБЪЕКТОВ И ИЗОЛЯЦИИ ДАННЫХ
-// ==========================================
 let objectsList = JSON.parse(localStorage.getItem('my_objects')) || [];
 let currentObject = localStorage.getItem('current_object') || '';
 let settings = JSON.parse(localStorage.getItem('my_settings')) || { company: '', phone: '', currency: '₽' };
@@ -21,9 +40,6 @@ function getStorageKey(baseName) {
     return obj + '_' + baseName;
 }
 
-// ==========================================
-// НАСТРОЙКИ
-// ==========================================
 window.saveSettings = function() {
     settings.company = document.getElementById('set-company').value;
     settings.phone = document.getElementById('set-phone').value;
@@ -48,7 +64,6 @@ function loadSettingsUI() {
 }
 
 window.exportData = function() {
-    // Собираем все ключи localStorage
     let backupData = {};
     for (let i = 0; i < localStorage.length; i++) {
         let key = localStorage.key(i);
@@ -56,11 +71,9 @@ window.exportData = function() {
     }
     let jsonStr = JSON.stringify(backupData, null, 2);
 
-    // Безопасное имя файла (без точек в дате)
     let d = new Date();
     let pad = n => (n < 10 ? '0' + n : '' + n);
-    let stamp = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
-              + '_' + pad(d.getHours()) + '-' + pad(d.getMinutes()) + '-' + pad(d.getSeconds());
+    let stamp = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + '_' + pad(d.getHours()) + '-' + pad(d.getMinutes()) + '-' + pad(d.getSeconds());
     let fileName = "ALVENIMA_BACKUP_" + stamp + ".json";
 
     statusDiv.innerText = "⏳ Сохраняю бэкап...";
@@ -69,13 +82,11 @@ window.exportData = function() {
     if (window.AndroidApp && window.AndroidApp.saveBackupToDownloads) {
         try {
             window.AndroidApp.saveBackupToDownloads(jsonStr, fileName);
-            // Результат придёт в onBackupSaved
         } catch (e) {
             statusDiv.innerText = "❌ Ошибка вызова Java: " + e.message;
             statusDiv.style.color = "#ff4444";
         }
     } else {
-        // Фолбэк для теста в обычном браузере
         try {
             let blob = new Blob([jsonStr], { type: 'application/json' });
             let url = URL.createObjectURL(blob);
@@ -95,7 +106,6 @@ window.exportData = function() {
     }
 };
 
-// Колбэк из Java после сохранения бэкапа
 window.onBackupSaved = function(ok, info) {
     if (ok) {
         statusDiv.innerText = "✅ " + info;
@@ -114,9 +124,6 @@ window.clearAllAppData = function() {
     }
 };
 
-// ==========================================
-// СПЛЭШ И ОБЪЕКТЫ
-// ==========================================
 function renderSplash() {
     const container = document.getElementById('objects-list-container');
     if (!container) return;
@@ -195,13 +202,28 @@ window.selectPersonalMode = function() {
     setTimeout(()=>{statusDiv.innerText='';}, 2000);
 };
 
-// ==========================================
-// НАВИГАЦИЯ (КОНТЕКСТ ДЛЯ МИКРОФОНА)
-// ==========================================
 window.switchView = function(viewId) {
+    // 1) Очищаем состояние аккордеонов ТОЛЬКО того экрана, с которого уходим.
+    //    Это гарантирует п.6 ТЗ: при повторном входе всё свёрнуто.
+    if (currentMicMode === 'smeta')   clearAccordionState('smeta');
+    if (currentMicMode === 'finance') clearAccordionState('finance');
+    if (currentMicMode === 'diary')   clearAccordionState('diary');
+
+    // 2) Скрываем все экраны, показываем нужный
     document.querySelectorAll('[id^="view-"]').forEach(el => el.classList.add('hidden'));
     document.getElementById('view-' + viewId).classList.remove('hidden');
+
+    // 3) Запоминаем текущий экран
     currentMicMode = viewId;
+    currentView = viewId;
+
+    // 4) Перерисовываем экран, в который входим.
+    //    Состояние уже пустое (почистили в п.1 при прошлом выходе) — всё свёрнуто.
+    if (viewId === 'smeta')   renderEstimate();
+    if (viewId === 'finance') renderFinance();
+    if (viewId === 'diary')   renderDiary();
+
+    // 5) Микрофон
     let micBtn = document.getElementById('floating-mic');
     if (viewId === 'splash' || viewId === 'objects') {
         micBtn.classList.add('hidden');
@@ -215,15 +237,16 @@ window.switchView = function(viewId) {
             micBtn.innerText = '🎤';
         }
     }
+
+    // 6) Прочее
     statusDiv.innerText = '';
     if (viewId === 'objects') renderSplash();
     if (viewId === 'home') document.getElementById('current-object-name').innerText = currentObject || 'Не выбран';
     if (viewId === 'settings') loadSettingsUI();
+
+    logStatus(`Экран: ${viewId}. Аккордеоны экрана-источника сброшены.`);
 };
 
-// ==========================================
-// МИКРОФОН (ПЕРЕТАСКИВАНИЕ)
-// ==========================================
 const micBtn = document.getElementById('floating-mic');
 let isDragging = false;
 let hasMoved = false;
@@ -282,9 +305,6 @@ micBtn.addEventListener('touchend', (e) => {
     }
 });
 
-// ==========================================
-// ГОЛОС И TTS
-// ==========================================
 function speak(text) {
     if (isRecording && window.AndroidApp && window.AndroidApp.stopVosk) {
         wasRecordingBeforeTts = true; window.AndroidApp.stopVosk(); isRecording = false;
@@ -321,9 +341,6 @@ window.toggleMic = () => {
     }
 };
 
-// ==========================================
-// ПАРСИНГ
-// ==========================================
 const NUMBERS_MAP = { "ноль": 0, "один": 1, "одна": 1, "два": 2, "две": 2, "три": 3, "четыре": 4, "пять": 5, "шесть": 6, "семь": 7, "восемь": 8, "девять": 9, "десять": 10, "одиннадцать": 11, "двенадцать": 12, "тринадцать": 13, "четырнадцать": 14, "пятнадцать": 15, "шестнадцать": 16, "семнадцать": 17, "восемнадцать": 18, "девятнадцать": 19, "двадцать": 20, "тридцать": 30, "сорок": 40, "пятьдесят": 50, "шестьдесят": 60, "семьдесят": 70, "восемьдесят": 80, "девяносто": 90, "сто": 100, "двести": 200, "триста": 300, "четыреста": 400, "пятьсот": 500, "шестьсот": 600, "семьсот": 700, "восемьсот": 800, "девятьсот": 900, "тысяча": 1000, "тысячи": 1000, "тысяч": 1000, "миллион": 1000000, "миллиона": 1000000, "миллионов": 1000000 };
 const UNITS_MAP = { "квадрат": "м²", "квадратов": "м²", "квадрата": "м²", "кв": "м²", "м2": "м²", "метр": "м.п.", "метров": "м.п.", "метра": "м.п.", "погонных": "м.п.", "штука": "шт.", "штук": "шт.", "штуки": "шт.", "шт": "шт.", "комплект": "компл.", "комплектов": "компл." };
 
@@ -359,23 +376,15 @@ function processVoiceCommand(text) {
         awaitingConfirm = false; pendingDeleteAction = null; pendingItemId = null; statusDiv.innerText = "Отменено."; speak("Отменено");
     }
 
-    // КОМАНДА ОЧИСТКИ ПОЛЕЙ
     if (cleanText.includes("очисти") || cleanText.includes("очистить") || cleanText.includes("сбрось") || cleanText.includes("сбросить")) {
-        if (currentMicMode === 'smeta') {
-            document.getElementById('work-name').value = ''; document.getElementById('work-qty').value = ''; document.getElementById('work-price').value = '';
-        } else if (currentMicMode === 'finance') {
-            document.getElementById('fin-category').value = ''; document.getElementById('fin-amount').value = '';
-        } else if (currentMicMode === 'diary') {
-            document.getElementById('diary-input').value = '';
-        } else if (currentMicMode === 'reminders') {
-            document.getElementById('rem-text').value = ''; document.getElementById('rem-date').value = ''; document.getElementById('rem-time').value = '';
-        } else if (currentMicMode === 'warehouse') {
-            document.getElementById('wh-name').value = ''; document.getElementById('wh-qty').value = ''; document.getElementById('wh-price').value = '';
-        }
+        if (currentMicMode === 'smeta') { document.getElementById('work-name').value = ''; document.getElementById('work-qty').value = ''; document.getElementById('work-price').value = ''; }
+        else if (currentMicMode === 'finance') { document.getElementById('fin-category').value = ''; document.getElementById('fin-amount').value = ''; }
+        else if (currentMicMode === 'diary') { document.getElementById('diary-input').value = ''; }
+        else if (currentMicMode === 'reminders') { document.getElementById('rem-text').value = ''; document.getElementById('rem-date').value = ''; document.getElementById('rem-time').value = ''; }
+        else if (currentMicMode === 'warehouse') { document.getElementById('wh-name').value = ''; document.getElementById('wh-qty').value = ''; document.getElementById('wh-price').value = ''; }
         statusDiv.innerText = "🧹 Поля очищены!"; speak("Очищено"); return;
     }
 
-    // НАВИГАЦИЯ
     if (cleanText.includes("главная") || cleanText.includes("меню") || cleanText.includes("назад")) { switchView(currentObject ? 'home' : 'objects'); return; }
     if (cleanText === "смета" || cleanText.includes("открой смету")) { switchView('smeta'); return; }
     if (cleanText === "финансы" || cleanText.includes("открой финансы")) { switchView('finance'); return; }
@@ -384,7 +393,6 @@ function processVoiceCommand(text) {
     if (cleanText === "склад" || cleanText.includes("открой склад")) { switchView('warehouse'); return; }
     if (cleanText === "настройки" || cleanText.includes("открой настройки")) { switchView('settings'); return; }
 
-    // КОМАНДЫ УДАЛЕНИЯ ВСЕГО
     let isDeleteSmeta = /удал(ить|и)?\s+смет[уа]/.test(cleanText);
     let isDeleteFin = /удал(ить|и)?\s+финанс[ыа]/.test(cleanText);
     let isDeleteDiary = /удал(ить|и)?\s+дневник[а]?/.test(cleanText);
@@ -397,7 +405,6 @@ function processVoiceCommand(text) {
         speak("Вы уверены?"); statusDiv.innerText = "⚠️ Удалить всё? Скажите 'Да' или 'Нет'."; return;
     }
 
-    // КОНТЕКСТНЫЕ КОМАНДЫ
     if (currentMicMode === 'smeta') parseSmetaVoice(lower);
     else if (currentMicMode === 'finance') parseFinanceVoice(lower);
     else if (currentMicMode === 'diary') parseDiaryVoice(lower);
@@ -407,54 +414,29 @@ function processVoiceCommand(text) {
 
 function parseSmetaVoice(lower) {
     let isAutoSmeta = settings.autosave === true;
-
     if ((lower.includes("добавь") || lower.includes("сохрани") || lower.includes("запиши")) && document.getElementById('work-name').value.trim() !== '') {
-        addToEstimate();
-        return;
+        addToEstimate(); return;
     }
-
     let words = lower.split(/\s+/);
-    let nameWords = [];
-    let qty = 0;
-    let currentNum = 0;
-    let unit = "м²";
-    let price = 0;
-    let priceCurrent = 0;
-    let afterPo = false;
-
+    let nameWords = []; let qty = 0; let currentNum = 0; let unit = "м²"; let price = 0; let priceCurrent = 0; let afterPo = false;
     for (let i = 0; i < words.length; i++) {
         let w = words[i].replace(/[^а-я0-9.]/g, '');
         if (!w) continue;
-
         if (w === "по" || w === "за") { afterPo = true; continue; }
-
-        if (w.match(/^\d+(\.\d+)?$/)) {
-            if (afterPo) price += parseFloat(w); else qty += parseFloat(w);
-            continue;
-        }
-
+        if (w.match(/^\d+(\.\d+)?$/)) { if (afterPo) price += parseFloat(w); else qty += parseFloat(w); continue; }
         if (NUMBERS_MAP[w] !== undefined) {
             let val = NUMBERS_MAP[w];
-            if (val >= 1000) {
-                if (afterPo) { if (priceCurrent === 0) priceCurrent = 1; price += priceCurrent * val; priceCurrent = 0; }
-                else { if (currentNum === 0) currentNum = 1; qty += currentNum * val; currentNum = 0; }
-            } else {
-                if (afterPo) priceCurrent += val; else currentNum += val;
-            }
+            if (val >= 1000) { if (afterPo) { if (priceCurrent === 0) priceCurrent = 1; price += priceCurrent * val; priceCurrent = 0; } else { if (currentNum === 0) currentNum = 1; qty += currentNum * val; currentNum = 0; } }
+            else { if (afterPo) priceCurrent += val; else currentNum += val; }
             continue;
         }
-
         if (w === "половиной") { afterPo ? price += 0.5 : qty += 0.5; continue; }
         if (w === "полтора") { afterPo ? price += 1.5 : qty += 1.5; continue; }
         if (UNITS_MAP[w] !== undefined) { unit = UNITS_MAP[w]; continue; }
         if (w === "на" || w === "с" || w === "и" || w === "в" || w === "от" || w === "до" || w === "добавь" || w === "добавить" || w === "запиши" || w === "сохрани") continue;
-
         nameWords.push(words[i]);
     }
-
-    qty += currentNum;
-    price += priceCurrent;
-
+    qty += currentNum; price += priceCurrent;
     let finalName = nameWords.join(" ").trim();
     if (finalName.length > 0) { finalName = finalName.charAt(0).toUpperCase() + finalName.slice(1); } else { finalName = "Работа"; }
 
@@ -469,23 +451,16 @@ function parseSmetaVoice(lower) {
     if (!price && savedPrices[finalName.trim().toLowerCase()]) {
         document.getElementById('work-price').value = savedPrices[finalName.trim().toLowerCase()];
         statusDiv.innerText = `Цена подставлена: ${savedPrices[finalName.trim().toLowerCase()]} ₽.`;
-    } else {
-        statusDiv.innerText = "Данные вставлены.";
-    }
+    } else { statusDiv.innerText = "Данные вставлены."; }
 
     let priceVal = parseFloat(document.getElementById('work-price').value);
     if (isAutoSmeta && finalName && qty > 0 && !isNaN(priceVal) && priceVal > 0) {
-        addToEstimate();
-        statusDiv.innerText = "✅ Автосохранено в Смету!";
-        speak("Сохранено");
+        addToEstimate(); statusDiv.innerText = "✅ Автосохранено в Смету!"; speak("Сохранено");
     }
 }
 
 function parseFinanceVoice(lower) {
-    // 1. УДАЛЕНИЕ
     if (lower.includes('удали') || lower.includes('удалить')) {
-        let isIncome = lower.includes('приход') || lower.includes('доход');
-        let isExpense = lower.includes('расход') || lower.includes('потрат');
         let words = lower.replace(/[^а-яё0-9\s]/g, ' ').split(' ');
         let nameWords = []; let amount = 0;
         let skip = ['удали', 'удалить', 'расход', 'приход', 'доход', 'потрат', 'на', 'за', 'в'];
@@ -503,7 +478,6 @@ function parseFinanceVoice(lower) {
         statusDiv.innerText = `⚠️ Удалить? Скажите Да или Нет.`; speak("Вы уверены?"); return;
     }
 
-    // 2. СОХРАНЕНИЕ (по команде)
     if (lower.includes('сохрани') || lower.includes('добавь') || lower.includes('запиши')) {
         const typeEl = document.getElementById('fin-type');
         const categoryEl = document.getElementById('fin-category');
@@ -511,12 +485,11 @@ function parseFinanceVoice(lower) {
         if (!categoryEl.value.trim() || !parseFloat(amountEl.value)) { speak("Поля пустые"); return; }
         financeData.push({ id: Date.now(), type: typeEl.value, category: categoryEl.value, amount: parseFloat(amountEl.value), date: new Date().toLocaleDateString('ru-RU') });
         localStorage.setItem(getStorageKey('finance'), JSON.stringify(financeData));
-        openTodayAfterRender = true;
-        renderFinance(); categoryEl.value = ''; amountEl.value = '';
+        categoryEl.value = ''; amountEl.value = '';
+        renderFinance();
         statusDiv.innerText = "✅ Сохранено!"; speak("Сохранено"); return;
     }
 
-    // 3. ЗАПОЛНЕНИЕ ПОЛЕЙ
     let type = 'income';
     if (lower.includes('потрат') || lower.includes('расход') || lower.includes('куп') || lower.includes('отда')) { type = 'expense'; }
     let words = lower.split(/\s+/); let nameWords = []; let amount = 0;
@@ -533,16 +506,12 @@ function parseFinanceVoice(lower) {
     document.getElementById('fin-category').value = finalName.charAt(0).toUpperCase() + finalName.slice(1);
     document.getElementById('fin-amount').value = amount > 0 ? amount : '';
 
-    // АВТОСОХРАНЕНИЕ
     if (settings.autosave && finalName && amount > 0) {
         financeData.push({ id: Date.now(), type: type, category: finalName.charAt(0).toUpperCase() + finalName.slice(1), amount: amount, date: new Date().toLocaleDateString('ru-RU') });
         localStorage.setItem(getStorageKey('finance'), JSON.stringify(financeData));
-        openTodayAfterRender = true;
-        renderFinance();
-
         document.getElementById('fin-category').value = '';
         document.getElementById('fin-amount').value = '';
-
+        renderFinance();
         statusDiv.innerText = "✅ Автосохранено в Финансы!";
         speak("Сохранено");
     } else {
@@ -557,7 +526,9 @@ function parseDiaryVoice(lower) {
     if ((lower.includes('сохрани') || lower.includes('добавь') || lower.includes('запиши') || isAuto) && inputEl.value.trim() !== '') {
         const now = new Date();
         diaryData.push({ id: Date.now(), text: inputEl.value.trim(), date: now.toLocaleDateString('ru-RU'), time: now.toLocaleTimeString('ru-RU', {hour: '2-digit', minute:'2-digit'}) });
-        localStorage.setItem(getStorageKey('diary'), JSON.stringify(diaryData)); openTodayAfterRender = true; renderDiary(); inputEl.value = '';
+        localStorage.setItem(getStorageKey('diary'), JSON.stringify(diaryData));
+        inputEl.value = '';
+        renderDiary();
         statusDiv.innerText = "✅ Запись сохранена!"; speak("Сохранено"); return;
     }
     let cleanText = lower.replace(/сохрани|добавь|запиши/g, '').trim();
@@ -567,26 +538,11 @@ function parseDiaryVoice(lower) {
     }
 }
 
-// ==========================================
-// ПАРСЕР СКЛАДА
-// ==========================================
 function parseWarehouseVoice(lower) {
     statusDiv.innerText = '🔍 Услышано: ' + lower;
     let text = lower.replace(/[^а-яё0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
     let words = text.split(' ').filter(w => w.length > 0);
-
-    const localMap = {
-        'ноль':0,'один':1,'одна':1,'два':2,'две':2,'три':3,'четыре':4,'пять':5,
-        'шесть':6,'семь':7,'восемь':8,'девять':9,'десять':10,'одиннадцать':11,
-        'двенадцать':12,'тринадцать':13,'четырнадцать':14,'пятнадцать':15,
-        'шестнадцать':16,'семнадцать':17,'восемнадцать':18,'девятнадцать':19,
-        'двадцать':20,'тридцать':30,'сорок':40,'пятьдесят':50,'шестьдесят':60,
-        'семьдесят':70,'восемьдесят':80,'девяносто':90,'сто':100,'двести':200,
-        'триста':300,'четыреста':400,'пятьсот':500,'шестьсот':600,'семьсот':700,
-        'восемьсот':800,'девятьсот':900,
-        'тысяча':1000, 'тысячи':1000, 'тысяч':1000,
-        'миллион':1000000, 'миллиона':1000000, 'миллионов':1000000
-    };
+    const localMap = { 'ноль':0,'один':1,'одна':1,'два':2,'две':2,'три':3,'четыре':4,'пять':5,'шесть':6,'семь':7,'восемь':8,'девять':9,'десять':10,'одиннадцать':11,'двенадцать':12,'тринадцать':13,'четырнадцать':14,'пятнадцать':15,'шестнадцать':16,'семнадцать':17,'восемнадцать':18,'девятнадцать':19,'двадцать':20,'тридцать':30,'сорок':40,'пятьдесят':50,'шестьдесят':60,'семьдесят':70,'восемьдесят':80,'девяносто':90,'сто':100,'двести':200,'триста':300,'четыреста':400,'пятьсот':500,'шестьсот':600,'семьсот':700,'восемьсот':800,'девятьсот':900,'тысяча':1000, 'тысячи':1000, 'тысяч':1000,'миллион':1000000, 'миллиона':1000000, 'миллионов':1000000 };
 
     function getNumber(str) {
         if (!str) return 0;
@@ -604,7 +560,6 @@ function parseWarehouseVoice(lower) {
         return result + current;
     }
 
-    // УДАЛЕНИЕ ИЛИ ВЫЧЕТ
     if (words.includes('удали') || words.includes('удалить')) {
         let nameWord = ""; let qtyToRemove = 0;
         let skip = ['удали', 'удалить', 'материал', 'на', 'со', 'склада', 'мешок', 'мешка', 'мешков', 'меш', 'кг', 'метр', 'штук', 'штуки'];
@@ -629,7 +584,6 @@ function parseWarehouseVoice(lower) {
         statusDiv.innerText = `⚠️ Удалить "${item.name}" полностью? Скажите 'Да' или 'Нет'.`; speak(`Вы уверены?`); return;
     }
 
-    // ДОБАВЛЕНИЕ
     let isOnlyAdd = (words.length === 1 || (words.length === 2 && words[0] === 'на')) && (words.includes('добавь') || words.includes('добавить') || words.includes('сохрани') || words.includes('сохранить'));
     if (isOnlyAdd) {
         const nameEl = document.getElementById('wh-name'); const qtyEl = document.getElementById('wh-qty'); const addBtn = document.getElementById('add-wh-btn');
@@ -639,7 +593,6 @@ function parseWarehouseVoice(lower) {
         return;
     }
 
-    // ЗАПОЛНЕНИЕ ПОЛЕЙ
     let poIndex = -1;
     for (let i = 0; i < words.length; i++) { if (words[i] === 'по' || words[i] === 'цена' || words[i] === 'за') { poIndex = i; break; } }
     let qtyPart = ''; let pricePart = '';
@@ -667,14 +620,10 @@ function parseWarehouseVoice(lower) {
     if (qtyEl) qtyEl.value = qty > 0 ? qty : '';
     if (priceEl) priceEl.value = price > 0 ? price : '';
     if (unitEl) { for (let i = 0; i < unitEl.options.length; i++) { if (unitEl.options[i].value === unit) { unitEl.selectedIndex = i; break; } } }
-        // АВТОСОХРАНЕНИЕ ДЛЯ СКЛАДА
-        if (settings.autosave === true && finalName && qty > 0) {
-            const addBtn = document.getElementById('add-wh-btn');
-            if (addBtn) {
-                addBtn.click();
-                return;
-            }
-        }
+    if (settings.autosave === true && finalName && qty > 0) {
+        const addBtn = document.getElementById('add-wh-btn');
+        if (addBtn) { addBtn.click(); return; }
+    }
     statusDiv.innerText = `📦 В поля: ${finalName} | Кол-во: ${qty} | Цена: ${price}`;
     speak('Данные вставлены');
 }
@@ -727,9 +676,6 @@ function parseReminderVoice(lower) {
     } else { statusDiv.innerText = "Ошибка: Нет доступа к будильнику"; }
 }
 
-// ==========================================
-// ЛОГОТИП ДЛЯ PDF
-// ==========================================
 window.handleLogoUpload = function(event) {
     const file = event.target.files[0];
     if (file) {
@@ -753,26 +699,34 @@ function updateLogoPreview() {
 
 window.removeLogo = function() { localStorage.removeItem('my_logo'); updateLogoPreview(); };
 
-// ==========================================
-// РЕНДЕРЫ СПИСКОВ
-// ==========================================
 let currentEstimate = JSON.parse(localStorage.getItem(getStorageKey('estimate'))) || [];
 currentEstimate = currentEstimate.map((item, index) => { if (!item.date) item.date = new Date().toLocaleDateString('ru-RU'); if (!item.id) item.id = Date.now() + index; return item; });
 function getTodayParts() { let today = new Date(); return { year: today.getFullYear().toString(), month: ('0' + (today.getMonth() + 1)).slice(-2), day: today.toLocaleDateString('ru-RU') }; }
 
 function toggleAccordion(id, iconId) {
-    let c = document.getElementById(id); let i = document.getElementById(iconId);
+    const c = document.getElementById(id);
+    const i = document.getElementById(iconId);
     if (!c) return;
-    if (c.classList.contains('hidden')) { c.classList.remove('hidden'); i.innerText = '▲'; }
-    else { c.classList.add('hidden'); i.innerText = '▼'; }
+
+    // Определяем экран по префиксу id, чтобы синхронизировать нужный Set
+    let screen = null;
+    if (id.startsWith('smeta-')) screen = 'smeta';
+    else if (id.startsWith('finance-')) screen = 'finance';
+    else if (id.startsWith('diary-')) screen = 'diary';
+
+    const isHidden = c.classList.contains('hidden');
+    if (isHidden) {
+        c.classList.remove('hidden');
+        if (i) i.innerText = '▲';
+        if (screen) openAccordions[screen].add(id);
+    } else {
+        c.classList.add('hidden');
+        if (i) i.innerText = '▼';
+        if (screen) openAccordions[screen].delete(id);
+    }
 }
 
 function renderEstimate() {
-    if (openTodayAfterRender) {
-        statusDiv.innerText = "DEBUG(smeta): today=" + getTodayParts().day
-            + " | flag=" + openTodayAfterRender
-            + " | keys=" + Object.keys(currentEstimate.reduce((acc, i) => { acc[i.date] = 1; return acc; }, {})).join(',');
-    }
     const listDiv = document.getElementById('estimate-list');
     const totalRow = document.getElementById('total-row');
     const totalSumSpan = document.getElementById('total-sum');
@@ -785,15 +739,10 @@ function renderEstimate() {
         return;
     }
 
-    let todayParts = getTodayParts();
-    let todaySafeId = todayParts.day.replace(/\./g, '_');
-    let shouldOpenToday = openTodayAfterRender;
-
     let tree = {}; let grandTotal = 0;
     currentEstimate.forEach(item => {
         let parts = item.date.split('.');
-        let year = parts[2];
-        let month = parts[1];
+        let year = parts[2]; let month = parts[1];
         if (!tree[year]) tree[year] = {};
         if (!tree[year][month]) tree[year][month] = {};
         if (!tree[year][month][item.date]) tree[year][month][item.date] = [];
@@ -801,25 +750,71 @@ function renderEstimate() {
         grandTotal += item.total;
     });
 
+    const state = openAccordions.smeta; // живой Set, читаем при генерации
     let sortedYears = Object.keys(tree).sort((a, b) => parseInt(b) - parseInt(a));
     let fullHtml = '';
 
     sortedYears.forEach(year => {
-        let yearExp = false; let yearTotal = 0;
+        let yearTotal = 0;
         Object.values(tree[year]).forEach(m => Object.values(m).forEach(d => d.forEach(i => yearTotal += i.total)));
-        fullHtml += `<div class="year-group" style="margin-bottom: 15px;"><div class="year-header" onclick="toggleAccordion('smeta-year-content-${year}', 'smeta-year-icon-${year}')" style="background: linear-gradient(135deg, #1a2a33, #0d1a20); padding: 15px 18px; border-radius: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 17px; font-weight: bold; color: #00c2ff; border: 1px solid #00c2ff;"><span>📅 ${year} год</span><span style="display: flex; gap: 12px; align-items: center;"><span style="color: #00ff88; font-size: 15px;">${yearTotal.toLocaleString('ru-RU')} ₽</span><span id="smeta-year-icon-${year}">▼</span></span></div><div id="smeta-year-content-${year}" class="hidden" style="margin-top: 10px; padding-left: 12px; border-left: 2px solid #00c2ff;">`;
+
+        const yearContentId = `smeta-year-content-${year}`;
+        const yearIconId = `smeta-year-icon-${year}`;
+        const yearOpen = state.has(yearContentId);
+
+        fullHtml += `<div class="year-group" style="margin-bottom: 15px;">
+            <div class="year-header" onclick="toggleAccordion('${yearContentId}', '${yearIconId}')" style="background: linear-gradient(135deg, #1a2a33, #0d1a20); padding: 15px 18px; border-radius: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 17px; font-weight: bold; color: #00c2ff; border: 1px solid #00c2ff;">
+                <span>📅 ${year} год</span>
+                <span style="display: flex; gap: 12px; align-items: center;">
+                    <span style="color: #00ff88; font-size: 15px;">${yearTotal.toLocaleString('ru-RU')} ₽</span>
+                    <span id="${yearIconId}">${yearOpen ? '▲' : '▼'}</span>
+                </span>
+            </div>
+            <div id="${yearContentId}" class="${yearOpen ? '' : 'hidden'}" style="margin-top: 10px; padding-left: 12px; border-left: 2px solid #00c2ff;">`;
 
         let sortedMonths = Object.keys(tree[year]).sort((a, b) => parseInt(b) - parseInt(a));
         sortedMonths.forEach(month => {
-            let key = year + '-' + month; let monthExp = false; let monthTotal = 0;
+            let key = year + '-' + month; let monthTotal = 0;
             Object.values(tree[year][month]).forEach(d => d.forEach(i => monthTotal += i.total));
-            fullHtml += `<div class="month-group" style="margin-bottom: 12px;"><div class="month-header" onclick="toggleAccordion('smeta-month-content-${key}', 'smeta-month-icon-${key}')" style="background: #222; padding: 12px 16px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #fff; border: 1px solid #444;"><span>📆 ${MONTH_NAMES[month]} ${year}</span><span style="display: flex; gap: 12px; align-items: center;"><span style="color: #00ff88; font-size: 14px;">${monthTotal.toLocaleString('ru-RU')} ₽</span><span id="smeta-month-icon-${key}">▼</span></span></div><div id="smeta-month-content-${key}" class="hidden" style="margin-top: 8px; padding-left: 12px; border-left: 2px solid #444;">`;
+
+            const monthContentId = `smeta-month-content-${key}`;
+            const monthIconId = `smeta-month-icon-${key}`;
+            const monthOpen = state.has(monthContentId);
+
+            fullHtml += `<div class="month-group" style="margin-bottom: 12px;">
+                <div class="month-header" onclick="toggleAccordion('${monthContentId}', '${monthIconId}')" style="background: #222; padding: 12px 16px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #fff; border: 1px solid #444;">
+                    <span>📆 ${MONTH_NAMES[month]} ${year}</span>
+                    <span style="display: flex; gap: 12px; align-items: center;">
+                        <span style="color: #00ff88; font-size: 14px;">${monthTotal.toLocaleString('ru-RU')} ₽</span>
+                        <span id="${monthIconId}">${monthOpen ? '▲' : '▼'}</span>
+                    </span>
+                </div>
+                <div id="${monthContentId}" class="${monthOpen ? '' : 'hidden'}" style="margin-top: 8px; padding-left: 12px; border-left: 2px solid #444;">`;
 
             let sortedDays = Object.keys(tree[year][month]).sort((a, b) => parseInt(b.split('.')[0]) - parseInt(a.split('.')[0]));
             sortedDays.forEach(date => {
-                let dayExp = false; let items = tree[year][month][date]; let dayTotal = 0; items.forEach(i => dayTotal += i.total); let safeId = date.replace(/\./g, '_');
-                fullHtml += `<div class="day-group" style="margin-bottom: 8px;"><div class="day-header" onclick="toggleAccordion('smeta-day-content-${safeId}', 'smeta-day-icon-${safeId}')" style="background: #1f1f1f; padding: 10px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #ccc; border-radius: 6px; border: 1px solid #333;"><span>📅 ${date}</span><span style="display: flex; gap: 12px; align-items: center;"><span style="color: #00ff88; font-size: 13px;">${dayTotal.toLocaleString('ru-RU')} ₽</span><span id="smeta-day-icon-${safeId}">▼</span></span></div><div id="smeta-day-content-${safeId}" class="hidden" style="background: #111; padding: 0 12px; border-radius: 0 0 6px 6px;">`;
-                [...items].sort((a, b) => b.id - a.id).forEach(item => { fullHtml += `<div class="estimate-item"><div class="item-info"><div class="item-name">${item.name}</div><div class="item-details">${item.qty} ${item.unit} × ${item.price} ₽</div></div><div style="display:flex; align-items:center;"><div class="item-total">${item.total.toLocaleString('ru-RU')} ₽</div><button class="delete-item-btn" onclick="deleteEstimateItem(${item.id})">✕</button></div></div>`; });
+                let items = tree[year][month][date];
+                let dayTotal = 0;
+                items.forEach(i => dayTotal += i.total);
+                let safeId = date.replace(/\./g, '_');
+
+                const dayContentId = `smeta-day-content-${safeId}`;
+                const dayIconId = `smeta-day-icon-${safeId}`;
+                const dayOpen = state.has(dayContentId);
+
+                fullHtml += `<div class="day-group" style="margin-bottom: 8px;">
+                    <div class="day-header" onclick="toggleAccordion('${dayContentId}', '${dayIconId}')" style="background: #1f1f1f; padding: 10px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #ccc; border-radius: 6px; border: 1px solid #333;">
+                        <span>📅 ${date}</span>
+                        <span style="display: flex; gap: 12px; align-items: center;">
+                            <span style="color: #00ff88; font-size: 13px;">${dayTotal.toLocaleString('ru-RU')} ₽</span>
+                            <span id="${dayIconId}">${dayOpen ? '▲' : '▼'}</span>
+                        </span>
+                    </div>
+                    <div id="${dayContentId}" class="${dayOpen ? '' : 'hidden'}" style="background: #111; padding: 0 12px; border-radius: 0 0 6px 6px;">`;
+
+                [...items].sort((a, b) => b.id - a.id).forEach(item => {
+                    fullHtml += `<div class="estimate-item"><div class="item-info"><div class="item-name">${item.name}</div><div class="item-details">${item.qty} ${item.unit} × ${item.price} ₽</div></div><div style="display:flex; align-items:center;"><div class="item-total">${item.total.toLocaleString('ru-RU')} ₽</div><button class="delete-item-btn" onclick="deleteEstimateItem(${item.id})">✕</button></div></div>`;
+                });
                 fullHtml += `</div></div>`;
             });
             fullHtml += `</div></div>`;
@@ -827,32 +822,30 @@ function renderEstimate() {
         fullHtml += `</div></div>`;
     });
 
-    if (shouldOpenToday) {
-        openTodayAfterRender = false;
-        let todayContainer = `<div id="smeta-day-content-${todaySafeId}" class="hidden"`;
-        if (fullHtml.includes(todayContainer)) {
-            fullHtml = fullHtml.replace(todayContainer, `<div id="smeta-day-content-${todaySafeId}"`);
-            fullHtml = fullHtml.replace(`id="smeta-day-icon-${todaySafeId}">▼`, `id="smeta-day-icon-${todaySafeId}">▲`);
-        }
-    }
-
     listDiv.innerHTML = fullHtml;
     totalRow.style.display = 'flex';
     totalSumSpan.innerText = grandTotal.toLocaleString('ru-RU') + ' ₽';
     exportButtons.style.display = 'flex';
+
+    logStatus(`Смета обновлена. Открыто блоков: ${openAccordions.smeta.size}`);
 }
 
 function addToEstimate() {
-    const name = document.getElementById('work-name').value; const qty = parseFloat(document.getElementById('work-qty').value); const unit = document.getElementById('work-unit').value; const price = parseFloat(document.getElementById('work-price').value);
+    const name = document.getElementById('work-name').value;
+    const qty = parseFloat(document.getElementById('work-qty').value);
+    const unit = document.getElementById('work-unit').value;
+    const price = parseFloat(document.getElementById('work-price').value);
     if (!name || isNaN(qty) || isNaN(price)) { alert("Ошибка: заполните все поля!"); return; }
     let savedPrices = JSON.parse(localStorage.getItem(getStorageKey('prices'))) || {}; savedPrices[name.trim().toLowerCase()] = price; localStorage.setItem(getStorageKey('prices'), JSON.stringify(savedPrices));
     currentEstimate.push({ id: Date.now(), name, qty, unit, price, total: qty * price, date: new Date().toLocaleDateString('ru-RU') });
     localStorage.setItem(getStorageKey('estimate'), JSON.stringify(currentEstimate));
     document.getElementById('work-name').value = ''; document.getElementById('work-qty').value = ''; document.getElementById('work-price').value = '';
-    openTodayAfterRender = true;
     renderEstimate();
-}
-window.deleteEstimateItem = (id) => { currentEstimate = currentEstimate.filter(i => i.id !== id); localStorage.setItem(getStorageKey('estimate'), JSON.stringify(currentEstimate)); renderEstimate(); };
+}   window.deleteEstimateItem = (id) => {
+    currentEstimate = currentEstimate.filter(i => i.id !== id);
+    localStorage.setItem(getStorageKey('estimate'), JSON.stringify(currentEstimate));
+    renderEstimate();
+};
 document.getElementById('add-btn').addEventListener('click', addToEstimate);
 
 let financeData = JSON.parse(localStorage.getItem(getStorageKey('finance'))) || [];
@@ -862,51 +855,100 @@ window.addFinanceManual = function() {
     const amount = parseFloat(String(amountRaw).replace(',', '.'));
     if (!category || isNaN(amount) || amount <= 0) { alert("Заполните название и сумму!"); return; }
     financeData.push({ id: Date.now(), type: type, category: category.charAt(0).toUpperCase() + category.slice(1), amount: amount, date: new Date().toLocaleDateString('ru-RU') });
-    localStorage.setItem(getStorageKey('finance'), JSON.stringify(financeData)); openTodayAfterRender = true; renderFinance();
+    localStorage.setItem(getStorageKey('finance'), JSON.stringify(financeData));
     document.getElementById('fin-category').value = ''; document.getElementById('fin-amount').value = '';
     statusDiv.innerText = "✅ Запись добавлена вручную!"; statusDiv.style.color = "#00ff88"; setTimeout(()=>{statusDiv.innerText='';}, 2000);
 };
 
 function renderFinance() {
-    if (openTodayAfterRender) {
-        statusDiv.innerText = "DEBUG(fin): today=" + getTodayParts().day
-            + " | flag=" + openTodayAfterRender
-            + " | keys=" + Object.keys(financeData.reduce((acc, i) => { acc[i.date] = 1; return acc; }, {})).join(',');
-    }
     const listDiv = document.getElementById('finance-list');
-    const balanceSpan = document.getElementById('finance-balance-sum');
+    if (!listDiv) return;
 
-    if (financeData.length === 0) {
-        listDiv.innerHTML = '<p style="color: #666; font-size: 14px; text-align: center;">Записей пока нет</p>';
-        balanceSpan.innerText = '0 ₽';
-        return;
-    }
+    let tree = {}; let grandTotal = 0;
+    financeData.forEach(item => {                       // было currentFinance
+        let parts = item.date.split('.');
+        let year = parts[2]; let month = parts[1];
+        if (!tree[year]) tree[year] = {};
+        if (!tree[year][month]) tree[year][month] = {};
+        if (!tree[year][month][item.date]) tree[year][month][item.date] = [];
+        tree[year][month][item.date].push(item);
+        grandTotal += item.amount;                      // было item.total
+    });
 
-    let todayParts = getTodayParts();
-    let todaySafeId = todayParts.day.replace(/\./g, '_');
-    let shouldOpenToday = openTodayAfterRender;
-
-    let balance = 0; let tree = {};
-    financeData.forEach(item => { if (!item.date || !item.date.includes('.')) return; let p = item.date.split('.'); let year = p[2]; let month = p[1]; if (!tree[year]) tree[year] = {}; if (!tree[year][month]) tree[year][month] = {}; if (!tree[year][month][item.date]) tree[year][month][item.date] = []; tree[year][month][item.date].push(item); balance += item.type === 'income' ? item.amount : -item.amount; });
-    let sortedYears = Object.keys(tree).sort((a, b) => parseInt(b) - parseInt(a)); let fullHtml = '';
+    const state = openAccordions.finance;
+    let sortedYears = Object.keys(tree).sort((a, b) => parseInt(b) - parseInt(a));
+    let fullHtml = '';
 
     sortedYears.forEach(year => {
         let yearTotal = 0;
-        Object.values(tree[year]).forEach(m => Object.values(m).forEach(d => d.forEach(i => yearTotal += i.type === 'income' ? i.amount : -i.amount)));
-        let yColor = yearTotal >= 0 ? '#00ff88' : '#ff4444'; let ySign = yearTotal > 0 ? '+' : '';
-        fullHtml += `<div class="year-group" style="margin-bottom: 15px;"><div class="year-header" onclick="toggleAccordion('fin-year-content-${year}', 'fin-year-icon-${year}')" style="background: linear-gradient(135deg, #1a2a33, #0d1a20); padding: 15px 18px; border-radius: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 17px; font-weight: bold; color: #00c2ff; border: 1px solid #00c2ff;"><span>📅 ${year} год</span><span style="display: flex; gap: 12px; align-items: center;"><span style="color: ${yColor}; font-size: 15px;">${ySign}${yearTotal.toLocaleString('ru-RU')} ₽</span><span id="fin-year-icon-${year}">▼</span></span></div><div id="fin-year-content-${year}" class="hidden" style="margin-top: 10px; padding-left: 12px; border-left: 2px solid #00c2ff;">`;
-        let sortedMonths = Object.keys(tree[year]).sort((a, b) => parseInt(b) - parseInt(a));
-        sortedMonths.forEach(month => {
+        Object.values(tree[year]).forEach(m => Object.values(m).forEach(d => d.forEach(i => yearTotal += i.amount)));  // amount
+
+        const yearContentId = `finance-year-content-${year}`;
+        const yearIconId = `finance-year-icon-${year}`;
+        const yearOpen = state.has(yearContentId);
+
+        fullHtml += `<div class="year-group" style="margin-bottom: 15px;">
+            <div class="year-header" onclick="toggleAccordion('${yearContentId}', '${yearIconId}')" style="background: linear-gradient(135deg, #1a2a33, #0d1a20); padding: 15px 18px; border-radius: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 17px; font-weight: bold; color: #00c2ff; border: 1px solid #00c2ff;">
+                <span>📅 ${year} год</span>
+                <span style="display: flex; gap: 12px; align-items: center;">
+                    <span style="color: #00ff88; font-size: 15px;">${yearTotal.toLocaleString('ru-RU')} ₽</span>
+                    <span id="${yearIconId}">${yearOpen ? '▲' : '▼'}</span>
+                </span>
+            </div>
+            <div id="${yearContentId}" class="${yearOpen ? '' : 'hidden'}" style="margin-top: 10px; padding-left: 12px; border-left: 2px solid #00c2ff;">`;
+
+        Object.keys(tree[year]).sort((a, b) => parseInt(b) - parseInt(a)).forEach(month => {
             let key = year + '-' + month; let monthTotal = 0;
-            Object.values(tree[year][month]).forEach(d => d.forEach(i => monthTotal += i.type === 'income' ? i.amount : -i.amount));
-            let mColor = monthTotal >= 0 ? '#00ff88' : '#ff4444'; let mSign = monthTotal > 0 ? '+' : '';
-            fullHtml += `<div class="month-group" style="margin-bottom: 12px;"><div class="month-header" onclick="toggleAccordion('fin-month-content-${key}', 'fin-month-icon-${key}')" style="background: #222; padding: 12px 16px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #fff; border: 1px solid #444;"><span>📆 ${MONTH_NAMES[month]} ${year}</span><span style="display: flex; gap: 12px; align-items: center;"><span style="color: ${mColor}; font-size: 14px;">${mSign}${monthTotal.toLocaleString('ru-RU')} ₽</span><span id="fin-month-icon-${key}">▼</span></span></div><div id="fin-month-content-${key}" class="hidden" style="margin-top: 8px; padding-left: 12px; border-left: 2px solid #444;">`;
-            let sortedDays = Object.keys(tree[year][month]).sort((a, b) => parseInt(b.split('.')[0]) - parseInt(a.split('.')[0]));
-            sortedDays.forEach(date => {
-                let items = tree[year][month][date]; let dayTotal = 0; items.forEach(i => dayTotal += i.type === 'income' ? i.amount : -i.amount);
-                let dColor = dayTotal >= 0 ? '#00ff88' : '#ff4444'; let dSign = dayTotal > 0 ? '+' : ''; let safeId = date.replace(/\./g, '_');
-                fullHtml += `<div class="day-group" style="margin-bottom: 8px;"><div class="day-header" onclick="toggleAccordion('fin-day-content-${safeId}', 'fin-day-icon-${safeId}')" style="background: #1f1f1f; padding: 10px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #ccc; border-radius: 6px; border: 1px solid #333;"><span>📅 ${date}</span><span style="display: flex; gap: 12px; align-items: center;"><span style="color: ${dColor}; font-size: 13px;">${dSign}${dayTotal.toLocaleString('ru-RU')} ₽</span><span id="fin-day-icon-${safeId}">▼</span></span></div><div id="fin-day-content-${safeId}" class="hidden" style="background: #111; padding: 0 12px; border-radius: 0 0 6px 6px;">`;
-                [...items].sort((a, b) => b.id - a.id).forEach(item => { const isInc = item.type === 'income'; const s = isInc ? '+' : '-'; const c = isInc ? 'type-income' : 'type-expense'; fullHtml += `<div class="finance-item"><div class="finance-info"><div class="finance-name">${item.category}</div><div class="finance-type ${c}">${isInc ? 'Приход' : 'Расход'}</div></div><div style="display:flex; align-items:center;"><div class="finance-amount ${c}">${s}${item.amount.toLocaleString('ru-RU')} ₽</div><button class="delete-item-btn" onclick="deleteFinance(${item.id})">✕</button></div></div>`; });
+            Object.values(tree[year][month]).forEach(d => d.forEach(i => monthTotal += i.amount));  // amount
+
+            const monthContentId = `finance-month-content-${key}`;
+            const monthIconId = `finance-month-icon-${key}`;
+            const monthOpen = state.has(monthContentId);
+
+            fullHtml += `<div class="month-group" style="margin-bottom: 12px;">
+                <div class="month-header" onclick="toggleAccordion('${monthContentId}', '${monthIconId}')" style="background: #222; padding: 12px 16px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #fff; border: 1px solid #444;">
+                    <span>📆 ${MONTH_NAMES[month]} ${year}</span>
+                    <span style="display: flex; gap: 12px; align-items: center;">
+                        <span style="color: #00ff88; font-size: 14px;">${monthTotal.toLocaleString('ru-RU')} ₽</span>
+                        <span id="${monthIconId}">${monthOpen ? '▲' : '▼'}</span>
+                    </span>
+                </div>
+                <div id="${monthContentId}" class="${monthOpen ? '' : 'hidden'}" style="margin-top: 8px; padding-left: 12px; border-left: 2px solid #444;">`;
+
+            Object.keys(tree[year][month]).sort((a, b) => parseInt(b.split('.')[0]) - parseInt(a.split('.')[0])).forEach(date => {
+                let items = tree[year][month][date]; let dayTotal = 0;
+                items.forEach(i => dayTotal += i.amount);   // amount
+                let safeId = date.replace(/\./g, '_');
+
+                const dayContentId = `finance-day-content-${safeId}`;
+                const dayIconId = `finance-day-icon-${safeId}`;
+                const dayOpen = state.has(dayContentId);
+
+                fullHtml += `<div class="day-group" style="margin-bottom: 8px;">
+                    <div class="day-header" onclick="toggleAccordion('${dayContentId}', '${dayIconId}')" style="background: #1f1f1f; padding: 10px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #ccc; border-radius: 6px; border: 1px solid #333;">
+                        <span>📅 ${date}</span>
+                        <span style="display: flex; gap: 12px; align-items: center;">
+                            <span style="color: #00ff88; font-size: 13px;">${dayTotal.toLocaleString('ru-RU')} ₽</span>
+                            <span id="${dayIconId}">${dayOpen ? '▲' : '▼'}</span>
+                        </span>
+                    </div>
+                    <div id="${dayContentId}" class="${dayOpen ? '' : 'hidden'}" style="background: #111; padding: 0 12px; border-radius: 0 0 6px 6px;">`;
+
+                [...items].sort((a, b) => b.id - a.id).forEach(item => {
+                    const sign  = item.type === 'expense' ? '−' : '+';
+                    const color = item.type === 'expense' ? '#ff4444' : '#00ff88';
+                    const label = item.type === 'expense' ? 'Расход' : 'Приход';
+                    fullHtml += `<div class="finance-item">
+                        <div class="item-info">
+                            <div class="item-name">${item.category}</div>
+                            <div class="item-details">${label}</div>
+                        </div>
+                        <div style="display:flex; align-items:center;">
+                            <div class="item-total" style="color:${color};">${sign}${item.amount.toLocaleString('ru-RU')} ₽</div>
+                            <button class="delete-item-btn" onclick="deleteFinance(${item.id})">✕</button>
+                        </div>
+                    </div>`;
+                });
                 fullHtml += `</div></div>`;
             });
             fullHtml += `</div></div>`;
@@ -914,56 +956,77 @@ function renderFinance() {
         fullHtml += `</div></div>`;
     });
 
-    if (shouldOpenToday) {
-        openTodayAfterRender = false;
-        let todayContainer = `<div id="fin-day-content-${todaySafeId}" class="hidden"`;
-        if (fullHtml.includes(todayContainer)) {
-            fullHtml = fullHtml.replace(todayContainer, `<div id="fin-day-content-${todaySafeId}"`);
-            fullHtml = fullHtml.replace(`id="fin-day-icon-${todaySafeId}">▼`, `id="fin-day-icon-${todaySafeId}">▲`);
-        }
-    }
-
     listDiv.innerHTML = fullHtml;
-    const bColor = balance >= 0 ? '#00ff88' : '#ff4444';
-    balanceSpan.style.color = bColor;
-    balanceSpan.innerText = balance.toLocaleString('ru-RU') + ' ₽';
+    logStatus(`Финансы обновлены. Открыто блоков: ${openAccordions.finance.size}`);
 }
-window.deleteFinance = (id) => { financeData = financeData.filter(i => i.id !== id); localStorage.setItem(getStorageKey('finance'), JSON.stringify(financeData)); renderFinance(); };
+window.deleteFinance = (id) => {
+    financeData = financeData.filter(i => i.id !== id);
+    localStorage.setItem(getStorageKey('finance'), JSON.stringify(financeData));
+    renderFinance();
+};
 window.clearAllFinance = () => { if (confirm("Удалить ВСЕ финансовые записи?")) { financeData = []; localStorage.setItem(getStorageKey('finance'), JSON.stringify(financeData)); renderFinance(); } };
 
 let diaryData = JSON.parse(localStorage.getItem(getStorageKey('diary'))) || [];
 function renderDiary() {
-    if (openTodayAfterRender) {
-        statusDiv.innerText = "DEBUG(diary): today=" + getTodayParts().day
-            + " | flag=" + openTodayAfterRender
-            + " | keys=" + Object.keys(diaryData.reduce((acc, i) => { acc[i.date] = 1; return acc; }, {})).join(',');
-    }
     const listDiv = document.getElementById('diary-list');
+    if (!listDiv) return;
 
-    if (diaryData.length === 0) {
-        listDiv.innerHTML = '<p style="color: #666; font-size: 14px; text-align: center;">Записей пока нет</p>';
-        return;
-    }
+    let tree = {};
+    diaryData.forEach(item => {
+        let parts = item.date.split('.');
+        let year = parts[2]; let month = parts[1];
+        if (!tree[year]) tree[year] = {};
+        if (!tree[year][month]) tree[year][month] = {};
+        if (!tree[year][month][item.date]) tree[year][month][item.date] = [];
+        tree[year][month][item.date].push(item);
+    });
 
-    let todayParts = getTodayParts();
-    let todaySafeId = todayParts.day.replace(/\./g, '_');
-    let shouldOpenToday = openTodayAfterRender;
-
-    let tree = {}; diaryData.forEach(item => { if (!item.date || !item.date.includes('.')) return; let p = item.date.split('.'); let year = p[2]; let month = p[1]; if (!tree[year]) tree[year] = {}; if (!tree[year][month]) tree[year][month] = {}; if (!tree[year][month][item.date]) tree[year][month][item.date] = []; tree[year][month][item.date].push(item); });
-    let sortedYears = Object.keys(tree).sort((a, b) => parseInt(b) - parseInt(a)); let fullHtml = '';
+    const state = openAccordions.diary;
+    let sortedYears = Object.keys(tree).sort((a, b) => parseInt(b) - parseInt(a));
+    let fullHtml = '';
 
     sortedYears.forEach(year => {
-        let yearCount = 0; Object.values(tree[year]).forEach(m => Object.values(m).forEach(d => d.forEach(i => yearCount++)));
-        fullHtml += `<div class="year-group" style="margin-bottom: 15px;"><div class="year-header" onclick="toggleAccordion('diary-year-content-${year}', 'diary-year-icon-${year}')" style="background: linear-gradient(135deg, #1a2a33, #0d1a20); padding: 15px 18px; border-radius: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 17px; font-weight: bold; color: #00c2ff; border: 1px solid #00c2ff;"><span>📅 ${year} год</span><span style="display: flex; gap: 12px; align-items: center;"><span style="color: #00c2ff; font-size: 14px;">${yearCount} зап.</span><span id="diary-year-icon-${year}">▼</span></span></div><div id="diary-year-content-${year}" class="hidden" style="margin-top: 10px; padding-left: 12px; border-left: 2px solid #00c2ff;">`;
-        let sortedMonths = Object.keys(tree[year]).sort((a, b) => parseInt(b) - parseInt(a));
-        sortedMonths.forEach(month => {
-            let key = year + '-' + month; let monthCount = 0; Object.values(tree[year][month]).forEach(d => d.forEach(i => monthCount++));
-            fullHtml += `<div class="month-group" style="margin-bottom: 12px;"><div class="month-header" onclick="toggleAccordion('diary-month-content-${key}', 'diary-month-icon-${key}')" style="background: #222; padding: 12px 16px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #fff; border: 1px solid #444;"><span>📆 ${MONTH_NAMES[month]} ${year}</span><span style="display: flex; gap: 12px; align-items: center;"><span style="color: #00c2ff; font-size: 14px;">${monthCount} зап.</span><span id="diary-month-icon-${key}">▼</span></span></div><div id="diary-month-content-${key}" class="hidden" style="margin-top: 8px; padding-left: 12px; border-left: 2px solid #444;">`;
-            let sortedDays = Object.keys(tree[year][month]).sort((a, b) => parseInt(b.split('.')[0]) - parseInt(a.split('.')[0]));
-            sortedDays.forEach(date => {
-                let items = tree[year][month][date]; let safeId = date.replace(/\./g, '_');
-                fullHtml += `<div class="day-group" style="margin-bottom: 8px;"><div class="day-header" onclick="toggleAccordion('diary-day-content-${safeId}', 'diary-day-icon-${safeId}')" style="background: #1f1f1f; padding: 10px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #ccc; border-radius: 6px; border: 1px solid #333;"><span>📅 ${date}</span><span style="display: flex; gap: 12px; align-items: center;"><span style="color: #00c2ff; font-size: 13px;">${items.length} зап.</span><span id="diary-day-icon-${safeId}">▼</span></span></div><div id="diary-day-content-${safeId}" class="hidden" style="background: #111; padding: 0 12px; border-radius: 0 0 6px 6px;">`;
-                [...items].sort((a, b) => b.id - a.id).forEach(item => { fullHtml += `<div class="diary-item"><div class="diary-info"><div class="diary-text">${item.text}</div><div class="diary-time">${item.time}</div></div><button class="delete-item-btn" onclick="deleteDiary(${item.id})">✕</button></div>`; });
+        const yearContentId = `diary-year-content-${year}`;
+        const yearIconId = `diary-year-icon-${year}`;
+        const yearOpen = state.has(yearContentId);
+
+        fullHtml += `<div class="year-group" style="margin-bottom: 15px;">
+            <div class="year-header" onclick="toggleAccordion('${yearContentId}', '${yearIconId}')" style="background: linear-gradient(135deg, #1a2a33, #0d1a20); padding: 15px 18px; border-radius: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 17px; font-weight: bold; color: #00c2ff; border: 1px solid #00c2ff;">
+                <span>📅 ${year} год</span>
+                <span id="${yearIconId}">${yearOpen ? '▲' : '▼'}</span>
+            </div>
+            <div id="${yearContentId}" class="${yearOpen ? '' : 'hidden'}" style="margin-top: 10px; padding-left: 12px; border-left: 2px solid #00c2ff;">`;
+
+        Object.keys(tree[year]).sort((a, b) => parseInt(b) - parseInt(a)).forEach(month => {
+            let key = year + '-' + month;
+            const monthContentId = `diary-month-content-${key}`;
+            const monthIconId = `diary-month-icon-${key}`;
+            const monthOpen = state.has(monthContentId);
+
+            fullHtml += `<div class="month-group" style="margin-bottom: 12px;">
+                <div class="month-header" onclick="toggleAccordion('${monthContentId}', '${monthIconId}')" style="background: #222; padding: 12px 16px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #fff; border: 1px solid #444;">
+                    <span>📆 ${MONTH_NAMES[month]} ${year}</span>
+                    <span id="${monthIconId}">${monthOpen ? '▲' : '▼'}</span>
+                </div>
+                <div id="${monthContentId}" class="${monthOpen ? '' : 'hidden'}" style="margin-top: 8px; padding-left: 12px; border-left: 2px solid #444;">`;
+
+            Object.keys(tree[year][month]).sort((a, b) => parseInt(b.split('.')[0]) - parseInt(a.split('.')[0])).forEach(date => {
+                let items = tree[year][month][date];
+                let safeId = date.replace(/\./g, '_');
+                const dayContentId = `diary-day-content-${safeId}`;
+                const dayIconId = `diary-day-icon-${safeId}`;
+                const dayOpen = state.has(dayContentId);
+
+                fullHtml += `<div class="day-group" style="margin-bottom: 8px;">
+                    <div class="day-header" onclick="toggleAccordion('${dayContentId}', '${dayIconId}')" style="background: #1f1f1f; padding: 10px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #ccc; border-radius: 6px; border: 1px solid #333;">
+                        <span>📅 ${date}</span>
+                        <span id="${dayIconId}">${dayOpen ? '▲' : '▼'}</span>
+                    </div>
+                    <div id="${dayContentId}" class="${dayOpen ? '' : 'hidden'}" style="background: #111; padding: 0 12px; border-radius: 0 0 6px 6px;">`;
+
+                [...items].sort((a, b) => b.id - a.id).forEach(item => {
+                    fullHtml += `<div class="diary-item"><div class="item-info"><div class="item-name">${item.text || item.name || ''}</div></div><button class="delete-item-btn" onclick="deleteDiaryItem(${item.id})">✕</button></div>`;
+                });
                 fullHtml += `</div></div>`;
             });
             fullHtml += `</div></div>`;
@@ -971,17 +1034,10 @@ function renderDiary() {
         fullHtml += `</div></div>`;
     });
 
-    if (shouldOpenToday) {
-        openTodayAfterRender = false;
-        let todayContainer = `<div id="diary-day-content-${todaySafeId}" class="hidden"`;
-        if (fullHtml.includes(todayContainer)) {
-            fullHtml = fullHtml.replace(todayContainer, `<div id="diary-day-content-${todaySafeId}"`);
-            fullHtml = fullHtml.replace(`id="diary-day-icon-${todaySafeId}">▼`, `id="diary-day-icon-${todaySafeId}">▲`);
-        }
-    }
-
     listDiv.innerHTML = fullHtml;
+    logStatus(`Дневник обновлён. Открыто блоков: ${openAccordions.diary.size}`);
 }
+
 document.getElementById('add-diary-btn').addEventListener('click', () => {
     const val = document.getElementById('diary-input').value.trim();
     if (!val) return;
@@ -994,10 +1050,13 @@ document.getElementById('add-diary-btn').addEventListener('click', () => {
     });
     localStorage.setItem(getStorageKey('diary'), JSON.stringify(diaryData));
     document.getElementById('diary-input').value = '';
-    openTodayAfterRender = true;
     renderDiary();
 });
-window.deleteDiary = (id) => { diaryData = diaryData.filter(i => i.id !== id); localStorage.setItem(getStorageKey('diary'), JSON.stringify(diaryData)); renderDiary(); };
+window.deleteDiary = (id) => {
+    diaryData = diaryData.filter(i => i.id !== id);
+    localStorage.setItem(getStorageKey('diary'), JSON.stringify(diaryData));
+    renderDiary();
+};
 window.clearAllDiary = () => { if (confirm("Удалить ВСЕ записи дневника?")) { diaryData = []; localStorage.setItem(getStorageKey('diary'), JSON.stringify(diaryData)); renderDiary(); } };
 
 let remindersData = JSON.parse(localStorage.getItem(getStorageKey('reminders'))) || [];
@@ -1019,11 +1078,22 @@ window.addReminderManual = function() {
 
 function renderReminders() {
     const listDiv = document.getElementById('reminders-list');
-    let active = remindersData.filter(r => r.time > Date.now()).sort((a,b) => a.time - b.time); let past = remindersData.filter(r => r.time <= Date.now()).sort((a,b) => b.time - a.time);
+    let active = remindersData.filter(r => r.time > Date.now()).sort((a,b) => a.time - b.time);
+    let past = remindersData.filter(r => r.time <= Date.now()).sort((a,b) => b.time - a.time);
     if (active.length === 0 && past.length === 0) { listDiv.innerHTML = '<p style="color: #666; font-size: 14px; text-align: center;">Нет напоминаний</p>'; return; }
     let html = '';
-    if (active.length > 0) { html += '<h4 style="color: #00c2ff; margin-bottom: 10px;">Активные:</h4>'; active.forEach(r => { html += `<div class="reminder-item"><div class="reminder-info"><div class="reminder-text">${r.text}</div><div class="reminder-time">⏰ ${r.dateStr}</div></div><button class="delete-item-btn" onclick="deleteReminder(${r.id})">✕</button></div>`; }); }
-    if (past.length > 0) { html += '<h4 style="color: #666; margin-top: 20px; margin-bottom: 10px;">Прошедшие:</h4>'; past.forEach(r => { html += `<div class="reminder-item" style="opacity: 0.5;"><div class="reminder-info"><div class="reminder-text">${r.text}</div><div class="reminder-time">⏰ ${r.dateStr}</div></div><button class="delete-item-btn" onclick="deleteReminder(${r.id})">✕</button></div>`; }); }
+    if (active.length > 0) {
+        html += '<h4 style="color: #00c2ff; margin-bottom: 10px;">Активные:</h4>';
+        active.forEach(r => {
+            html += `<div class="reminder-item"><div class="reminder-info"><div class="reminder-text">${r.text}</div><div class="reminder-time">⏰ ${r.dateStr}</div></div><button class="delete-item-btn" onclick="deleteReminder(${r.id})">✕</button></div>`;
+        });
+    }
+    if (past.length > 0) {
+        html += '<h4 style="color: #666; margin-top: 20px; margin-bottom: 10px;">Прошедшие:</h4>';
+        past.forEach(r => {
+            html += `<div class="reminder-item" style="opacity: 0.5;"><div class="reminder-info"><div class="reminder-text">${r.text}</div><div class="reminder-time">⏰ ${r.dateStr}</div></div><button class="delete-item-btn" onclick="deleteReminder(${r.id})">✕</button></div>`;
+        });
+    }
     listDiv.innerHTML = html;
 }
 window.deleteReminder = (id) => { remindersData = remindersData.filter(r => r.id !== id); localStorage.setItem(getStorageKey('reminders'), JSON.stringify(remindersData)); renderReminders(); };
@@ -1083,9 +1153,6 @@ window.writeOffWarehouseItem = function(id) {
 };
 window.deleteWarehouseItem = (id) => { warehouseData = warehouseData.filter(i => i.id !== id); localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(warehouseData)); renderWarehouse(); };
 
-// ==========================================
-// PDF
-// ==========================================
 function createPdfHtml() {
     const dateStr = new Date().toLocaleDateString('ru-RU'); const docNumber = Math.floor(Date.now() / 1000).toString().slice(-4);
     let rowsHtml = ''; let total = 0;
@@ -1147,9 +1214,6 @@ window.shareEstimate = async () => {
     if (window.AndroidApp) { window.AndroidApp.sharePdf(pdfBase64); } else { alert("Отправка файлов доступна только в приложении."); }
 };
 
-// ==========================================
-// СВАЙПЫ ДЛЯ ПЕРЕКЛЮЧЕНИЯ ЭКРАНОВ (С АНИМАЦИЕЙ)
-// ==========================================
 let touchStartX = 0;
 let touchStartY = 0;
 let touchEndX = 0;
@@ -1193,16 +1257,12 @@ function handleSwipeGesture() {
     }
 }
 
-// ==========================================
-// АВТОСОХРАНЕНИЕ ТУМБЛЕРА ПРИ КЛИКЕ
-// ==========================================
 setTimeout(() => {
     const autosaveCb = document.getElementById('setting-autosave');
     if (autosaveCb) {
         autosaveCb.addEventListener('change', function() {
             settings.autosave = this.checked;
             localStorage.setItem('my_settings', JSON.stringify(settings));
-
             statusDiv.innerText = this.checked ? "✅ Автосохранение ВКЛ" : "❌ Автосохранение ВЫКЛ";
             statusDiv.style.color = this.checked ? "#00ff88" : "#ff4444";
             setTimeout(()=>{statusDiv.innerText='';}, 2000);
@@ -1224,6 +1284,10 @@ setTimeout(() => {
 }, 2500);
 
 updateLogoPreview();
+
+clearAccordionState('smeta');
+clearAccordionState('finance');
+clearAccordionState('diary');
 renderEstimate();
 renderFinance();
 renderDiary();
