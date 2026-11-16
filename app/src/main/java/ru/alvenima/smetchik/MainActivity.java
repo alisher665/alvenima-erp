@@ -38,6 +38,8 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 
+import com.google.firebase.firestore.FirebaseFirestore;
+
 import org.json.JSONObject;
 import org.vosk.Model;
 import org.vosk.Recognizer;
@@ -78,47 +80,37 @@ public class MainActivity extends AppCompatActivity {
             getWindow().setStatusBarColor(Color.BLACK);
         }
 
-        // --- НАЧАЛО БЛОКА ПРОВЕРКИ ID ---
         String androidId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
 
-        new Thread(() -> {
-            boolean isAllowed = false;
-            try {
-                // ВАЖНО: Замени api.alvenima.ru на свой домен, если он отличается
-                java.net.URL url = new java.net.URL("http://api.alvenima.ru/check.php?id=" + androidId);
-                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("GET");
-                conn.setConnectTimeout(5000);
-                conn.setReadTimeout(5000);
+        // --- НАЧАЛО БЛОКА ПРОВЕРКИ ЧЕРЕЗ FIRESTORE ---
+        FirebaseFirestore db = FirebaseFirestore.getInstance();
 
-                if (conn.getResponseCode() == 200) {
-                    java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(conn.getInputStream()));
-                    StringBuilder response = new StringBuilder();
-                    String line;
-                    while ((line = in.readLine()) != null) {
-                        response.append(line);
+        db.collection("users").document(androidId).get()
+                .addOnCompleteListener(task -> {
+                    if (task.isSuccessful()) {
+                        if (task.getResult().exists()) {
+                            // Документ существует, доступ разрешен
+                            initApp();
+                        } else {
+                            // Документа нет, доступ запрещен
+                            showBlockScreen("Доступ запрещен.\n\nВаш ID:\n" + androidId + "\n\nОтправьте этот ID разработчику.");
+                        }
+                    } else {
+                        // Ошибка сети или базы данных
+                        showBlockScreen("Ошибка подключения к базе:\n" + task.getException().getMessage() + "\n\nВаш ID:\n" + androidId);
                     }
-                    in.close();
-
-                    String result = response.toString();
-                    if (result.contains("\"status\":\"ok\"")) {
-                        isAllowed = true;
-                    }
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-
-            final boolean finalIsAllowed = isAllowed;
-            runOnUiThread(() -> {
-                if (finalIsAllowed) {
-                    initApp(); // Запускаем приложение
-                } else {
-                    showBlockScreen(androidId); // Блокируем
-                }
-            });
-        }).start();
+                });
         // --- КОНЕЦ БЛОКА ПРОВЕРКИ ---
+    }
+
+    private void showBlockScreen(String message) {
+        TextView textView = new TextView(this);
+        textView.setText(message);
+        textView.setTextColor(Color.WHITE);
+        textView.setTextSize(16);
+        textView.setPadding(50, 50, 50, 50);
+        textView.setBackgroundColor(Color.BLACK);
+        setContentView(textView);
     }
 
     private void initApp() {
@@ -166,7 +158,9 @@ public class MainActivity extends AppCompatActivity {
         StorageService.unpack(this, "vosk-model-small-ru-0.22", "model",
                 (model) -> {
                     this.model = model;
-                    runOnUiThread(() -> webView.evaluateJavascript("onModelLoaded()", null));
+                    runOnUiThread(() -> {
+                        if (webView != null) webView.evaluateJavascript("onModelLoaded()", null);
+                    });
                 },
                 (exception) -> {
                     runOnUiThread(() -> Toast.makeText(this, "Ошибка загрузки модели: " + exception.getMessage(), Toast.LENGTH_LONG).show());
@@ -224,16 +218,6 @@ public class MainActivity extends AppCompatActivity {
         webView.loadUrl("file:///android_asset/index.html");
     }
 
-    private void showBlockScreen(String androidId) {
-        TextView textView = new TextView(this);
-        textView.setText("Доступ запрещен.\n\nВаш ID устройства:\n" + androidId + "\n\nОтправьте этот ID разработчику для активации.");
-        textView.setTextColor(Color.WHITE);
-        textView.setTextSize(18);
-        textView.setPadding(50, 50, 50, 50);
-        textView.setBackgroundColor(Color.BLACK);
-        setContentView(textView);
-    }
-
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == FILECHOOSER_RESULTCODE) {
@@ -258,6 +242,28 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public class WebAppInterface {
+
+        @JavascriptInterface
+        public void createShortcut() {
+            try {
+                Intent shortcutIntent = new Intent(getApplicationContext(), MainActivity.class);
+                shortcutIntent.setAction(Intent.ACTION_MAIN);
+
+                Intent addIntent = new Intent();
+                addIntent.putExtra(Intent.EXTRA_SHORTCUT_INTENT, shortcutIntent);
+                addIntent.putExtra(Intent.EXTRA_SHORTCUT_NAME, "ALVENIMA");
+
+                addIntent.putExtra(Intent.EXTRA_SHORTCUT_ICON_RESOURCE,
+                        Intent.ShortcutIconResource.fromContext(getApplicationContext(), R.mipmap.ic_launcher));
+
+                addIntent.setAction("com.android.launcher.action.INSTALL_SHORTCUT");
+                getApplicationContext().sendBroadcast(addIntent);
+
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Ярлык создан", Toast.LENGTH_SHORT).show());
+            } catch (Exception e) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show());
+            }
+        }
 
         @JavascriptInterface
         public void saveBackupToDownloads(String jsonData, String fileName) {
@@ -388,7 +394,9 @@ public class MainActivity extends AppCompatActivity {
                                     lastRecognizedText = cleanText;
                                     sendTextToJS(cleanText);
                                 }
-                                runOnUiThread(() -> webView.evaluateJavascript("onVoskResult(" + JSONObject.quote(cleanText) + ")", null));
+                                runOnUiThread(() -> {
+                                    if (webView != null) webView.evaluateJavascript("onVoskResult(" + JSONObject.quote(cleanText) + ")", null);
+                                });
                             }
                         }
                     }
@@ -420,7 +428,9 @@ public class MainActivity extends AppCompatActivity {
                         sendTextToJS(cleanText);
                     }
                     String toSend = lastRecognizedText.isEmpty() ? "" : lastRecognizedText;
-                    runOnUiThread(() -> webView.evaluateJavascript("onVoskResult(" + JSONObject.quote(toSend) + ")", null));
+                    runOnUiThread(() -> {
+                        if (webView != null) webView.evaluateJavascript("onVoskResult(" + JSONObject.quote(toSend) + ")", null);
+                    });
                     lastRecognizedText = "";
                     recognizer.close();
                     recognizer = null;
@@ -448,8 +458,10 @@ public class MainActivity extends AppCompatActivity {
         private void sendTextToJS(String text) {
             runOnUiThread(() -> {
                 try {
-                    String js = String.format("window.handleVoiceInput(%s);", JSONObject.quote(text));
-                    webView.evaluateJavascript(js, null);
+                    if (webView != null) {
+                        String js = String.format("window.handleVoiceInput(%s);", JSONObject.quote(text));
+                        webView.evaluateJavascript(js, null);
+                    }
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -523,7 +535,7 @@ public class MainActivity extends AppCompatActivity {
         if (requestCode == REQUEST_AUDIO_PERMISSION) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 showToast("Микрофон разрешен!");
-                webView.evaluateJavascript("if (window.AndroidApp && window.AndroidApp.startVosk) window.AndroidApp.startVosk();", null);
+                if (webView != null) webView.evaluateJavascript("if (window.AndroidApp && window.AndroidApp.startVosk) window.AndroidApp.startVosk();", null);
             }
         }
     }

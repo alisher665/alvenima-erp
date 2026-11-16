@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "270189931819",
+    "project_id": "alvenima-c4264",
+    "storage_bucket": "alvenima-c4264.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:270189931819:android:f58dba7b8c1d7b2694296e",
+        "android_client_info": {
+          "package_name": "ru.alvenima.smetchik"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAaWptoMbFQzoq2ac2RI9xKRILkctuSpJo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

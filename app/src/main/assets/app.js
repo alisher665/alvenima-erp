@@ -1767,3 +1767,11 @@ renderFinance();
 renderDiary();
 renderReminders();
 renderWarehouse();
+
+function createAppShortcut() {
+    if (window.AndroidApp && window.AndroidApp.createShortcut) {
+        window.AndroidApp.createShortcut();
+    } else {
+        alert("Создание ярлыка доступно только в приложении.");
+    }
+}
