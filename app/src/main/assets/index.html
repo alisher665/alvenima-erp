@@ -240,13 +240,13 @@
             </div>
 
             <div class="input-wrapper">
-                <select id="wh-category">
+                <select id="wh-category" placeholder=" ">
+                    <option value="Без категории">Без категории</option>
                     <option value="Расходники">Расходники</option>
                     <option value="Инструмент">Инструмент</option>
+                    <option value="Материалы">Материалы</option>
                     <option value="Электрика">Электрика</option>
                     <option value="Сантехника">Сантехника</option>
-                    <option value="Стройматериалы">Стройматериалы</option>
-                    <option value="Прочее">Прочее</option>
                 </select>
                 <label>Категория</label>
             </div>
@@ -257,7 +257,7 @@
                     <label>Кол-во</label>
                 </div>
                 <div class="input-wrapper" style="flex: 1;">
-                    <select id="wh-unit">
+                    <select id="wh-unit" placeholder=" ">
                         <option value="шт.">шт.</option>
                         <option value="меш.">меш.</option>
                         <option value="кг">кг</option>
@@ -274,8 +274,8 @@
             </div>
 
             <div style="display: flex; gap: 10px; margin-top: 10px;">
-                <button id="add-wh-btn" class="btn-add" style="flex: 1; margin: 0;" onclick="addWarehouseManual()">Добавить (Приход)</button>
-                <button id="cancel-edit-wh-btn" class="btn-danger hidden" style="flex: 1; margin: 0;" onclick="cancelEditWarehouse()">Отмена</button>
+                <button id="add-wh-btn" class="btn-add" style="flex: 1;" onclick="addWarehouseManual()">Добавить (Приход)</button>
+                <button id="cancel-edit-wh-btn" class="btn-danger hidden" style="flex: 1;" onclick="cancelEditWarehouse()">Отмена</button>
             </div>
         </div>
 
@@ -318,7 +318,7 @@
                     <label>Кол-во</label>
                 </div>
                 <div class="input-wrapper" style="flex: 1;">
-                    <select id="work-unit">
+                    <select id="work-unit" placeholder=" ">
                         <option value="м²">м²</option>
                         <option value="м.п.">м.п.</option>
                         <option value="шт.">шт.</option>

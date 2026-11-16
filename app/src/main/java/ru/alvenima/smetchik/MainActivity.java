@@ -17,6 +17,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
+import android.provider.Settings;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.util.Base64;
@@ -28,6 +29,7 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -72,11 +74,54 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        // КРАСИМ СИСТЕМНУЮ ПОЛОСУ СВЕРХУ В ЧЕРНЫЙ ЦВЕТ
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             getWindow().setStatusBarColor(Color.BLACK);
         }
 
+        // --- НАЧАЛО БЛОКА ПРОВЕРКИ ID ---
+        String androidId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+
+        new Thread(() -> {
+            boolean isAllowed = false;
+            try {
+                // ВАЖНО: Замени api.alvenima.ru на свой домен, если он отличается
+                java.net.URL url = new java.net.URL("http://api.alvenima.ru/check.php?id=" + androidId);
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(5000);
+
+                if (conn.getResponseCode() == 200) {
+                    java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(conn.getInputStream()));
+                    StringBuilder response = new StringBuilder();
+                    String line;
+                    while ((line = in.readLine()) != null) {
+                        response.append(line);
+                    }
+                    in.close();
+
+                    String result = response.toString();
+                    if (result.contains("\"status\":\"ok\"")) {
+                        isAllowed = true;
+                    }
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
+            final boolean finalIsAllowed = isAllowed;
+            runOnUiThread(() -> {
+                if (finalIsAllowed) {
+                    initApp(); // Запускаем приложение
+                } else {
+                    showBlockScreen(androidId); // Блокируем
+                }
+            });
+        }).start();
+        // --- КОНЕЦ БЛОКА ПРОВЕРКИ ---
+    }
+
+    private void initApp() {
         // Запрос разрешения на уведомления (Android 13+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -121,7 +166,6 @@ public class MainActivity extends AppCompatActivity {
         StorageService.unpack(this, "vosk-model-small-ru-0.22", "model",
                 (model) -> {
                     this.model = model;
-
                     runOnUiThread(() -> webView.evaluateJavascript("onModelLoaded()", null));
                 },
                 (exception) -> {
@@ -155,7 +199,6 @@ public class MainActivity extends AppCompatActivity {
                 });
             }
 
-            // ОБРАБОТЧИК ВЫБОРА ФАЙЛА ИЗ HTML
             @Override
             public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
                 if (mFilePathCallback != null) {
@@ -176,15 +219,21 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // Устанавливаем обычный WebViewClient (без SSL-ошибок)
         webView.setWebViewClient(new WebViewClient());
         setContentView(webView);
-
-        // Открываем файл напрямую из assets. Никаких серверов и портов.
         webView.loadUrl("file:///android_asset/index.html");
     }
 
-    // ПОЛУЧАЕМ РЕЗУЛЬТАТ ВЫБОРА ФАЙЛА
+    private void showBlockScreen(String androidId) {
+        TextView textView = new TextView(this);
+        textView.setText("Доступ запрещен.\n\nВаш ID устройства:\n" + androidId + "\n\nОтправьте этот ID разработчику для активации.");
+        textView.setTextColor(Color.WHITE);
+        textView.setTextSize(18);
+        textView.setPadding(50, 50, 50, 50);
+        textView.setBackgroundColor(Color.BLACK);
+        setContentView(textView);
+    }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == FILECHOOSER_RESULTCODE) {
@@ -271,11 +320,9 @@ public class MainActivity extends AppCompatActivity {
             int requestCode = (int) (timestamp / 1000);
             PendingIntent pendingIntent = PendingIntent.getBroadcast(MainActivity.this, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-            // Сохраняем в память телефона на случай перезагрузки
             SharedPreferences prefs = getSharedPreferences("AlarmsData", Context.MODE_PRIVATE);
             prefs.edit().putString(String.valueOf(timestamp), text).apply();
 
-            // Проверка разрешений для Android 12+ (Samsung)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if (!alarmManager.canScheduleExactAlarms()) {
                     showToast("Разрешите точные будильники в настройках!");
@@ -318,7 +365,6 @@ public class MainActivity extends AppCompatActivity {
             }
 
             try {
-                // Создаем распознаватель (без принудительного словаря, чтобы понимал любые слова)
                 recognizer = new Recognizer(model, 16000.0f);
                 lastRecognizedText = "";
 
@@ -477,7 +523,6 @@ public class MainActivity extends AppCompatActivity {
         if (requestCode == REQUEST_AUDIO_PERMISSION) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 showToast("Микрофон разрешен!");
-                // Автоматически включаем микрофон
                 webView.evaluateJavascript("if (window.AndroidApp && window.AndroidApp.startVosk) window.AndroidApp.startVosk();", null);
             }
         }

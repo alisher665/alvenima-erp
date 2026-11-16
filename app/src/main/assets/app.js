@@ -728,6 +728,12 @@ function renderWarehouse() {
         }
         html += '</div>';
         html += '<div class="wh-card-actions" style="display:flex; gap:5px;">';
+
+        // Кнопка отслеживания (вкл/выкл)
+        const isTracked = item.trackQty !== false; // По умолчанию включено
+        const bellColor = isTracked ? '#00c2ff' : '#555';
+        html += '<button class="wh-btn" onclick="toggleWarehouseTracking(' + item.id + ')" style="background:#222; border:1px solid #444; color:' + bellColor + '; border-radius:6px; padding:5px 10px; cursor:pointer;" title="Отслеживать остаток">🔔</button>';
+
         html += '<button class="wh-btn" onclick="changeWarehouseQty(' + item.id + ', 1)" style="background:#222; border:1px solid #444; color:#00ff88; border-radius:6px; padding:5px 10px; cursor:pointer;">+</button>';
         html += '<button class="wh-btn" onclick="changeWarehouseQty(' + item.id + ', -1)" style="background:#222; border:1px solid #444; color:#ff9800; border-radius:6px; padding:5px 10px; cursor:pointer;">-</button>';
         html += '<button class="wh-btn" onclick="startEditWarehouse(' + item.id + ')" style="background:#222; border:1px solid #444; color:#00c2ff; border-radius:6px; padding:5px 10px; cursor:pointer;">✏️</button>';
@@ -801,6 +807,18 @@ function deleteWarehouseItem(id) {
     }
 }
 
+function toggleWarehouseTracking(id) {
+    let data = JSON.parse(localStorage.getItem(getStorageKey('warehouse'))) || [];
+    let item = data.find(i => i.id === id);
+    if (item) {
+        // Если было true или не задано, ставим false, и наоборот
+        item.trackQty = (item.trackQty === false) ? true : false;
+        localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(data));
+        renderWarehouse();
+        logStatus(item.trackQty ? 'Отслеживание включено' : 'Отслеживание выключено');
+    }
+}
+
 // Редактирование материала
 function startEditWarehouse(id) {
     let data = JSON.parse(localStorage.getItem(getStorageKey('warehouse'))) || [];
@@ -847,6 +865,9 @@ function updateWarehouseWarnings(data) {
 
     const lowItems = data.filter(item => {
         const qty = Number(item.qty) || 0;
+        // Если у материала явно выключено отслеживание, пропускаем его
+        if (item.trackQty === false) return false;
+
         return qty > 0 && qty <= 5;
     });
 
@@ -1009,6 +1030,137 @@ function parseWarehouseVoice(lower) {
     }
     localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(data));
     renderWarehouse();
+}
+
+function createWarehousePdfHtml() {
+    const dateStr = new Date().toLocaleDateString('ru-RU');
+    let rowsHtml = '';
+    let total = 0;
+
+    let data = JSON.parse(localStorage.getItem(getStorageKey('warehouse'))) || [];
+    data.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'));
+
+    data.forEach((item, index) => {
+        const qty = Number(item.qty) || 0;
+        const price = Number(item.price) || 0;
+        const sum = qty * price;
+        total += sum;
+
+        rowsHtml += `<tr>
+            <td style="border: 1px solid #000; padding: 8px; text-align: center;">${index + 1}</td>
+            <td style="border: 1px solid #000; padding: 8px;">${item.name || ''}</td>
+            <td style="border: 1px solid #000; padding: 8px; text-align: center;">${item.unit || ''}</td>
+            <td style="border: 1px solid #000; padding: 8px; text-align: right;">${qty}</td>
+            <td style="border: 1px solid #000; padding: 8px; text-align: right;">${price.toLocaleString('ru-RU')} ₽</td>
+            <td style="border: 1px solid #000; padding: 8px; text-align: right; font-weight: bold;">${sum.toLocaleString('ru-RU')} ₽</td>
+        </tr>`;
+    });
+
+    const savedLogo = localStorage.getItem('my_logo');
+    let logoHtml = savedLogo ? `<img src="${savedLogo}" style="max-height: 60px; max-width: 120px; object-fit: contain; margin-bottom: 5px;">` : '';
+
+    let companyStr = settings.company ? `<b>${settings.company}</b><br>` : '';
+    let phoneStr = settings.phone ? `<br>Тел: ${settings.phone}` : '';
+
+    return `<div style="font-family: 'Times New Roman', Times, serif; color: #000; background: #fff; padding: 30px; width: 800px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
+            <div>
+                <h1 style="margin: 0; font-size: 24px; text-transform: uppercase;">Отчет по складу</h1>
+                <p style="margin: 5px 0 0 0; font-size: 14px; color: #555;">Дата: ${dateStr}<br>Объект: ${currentObject}</p>
+            </div>
+            <div style="text-align: right;">
+                ${logoHtml}
+                <p style="margin: 0; font-size: 14px;">${companyStr}Исполнитель${phoneStr}</p>
+            </div>
+        </div>
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">
+            <thead>
+                <tr style="background: #eee;">
+                    <th style="border: 1px solid #000; padding: 8px;">№</th>
+                    <th style="border: 1px solid #000; padding: 8px; text-align: left;">Наименование материала</th>
+                    <th style="border: 1px solid #000; padding: 8px;">Ед. изм.</th>
+                    <th style="border: 1px solid #000; padding: 8px;">Кол-во</th>
+                    <th style="border: 1px solid #000; padding: 8px;">Цена</th>
+                    <th style="border: 1px solid #000; padding: 8px;">Сумма</th>
+                </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+        </table>
+        <div style="text-align: right; margin-bottom: 30px;">
+            <h2 style="margin: 0; font-size: 18px; border-bottom: 2px solid #000; display: inline-block; padding-bottom: 5px;">ИТОГО: ${total.toLocaleString('ru-RU')} ₽</h2>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-top: 30px; font-size: 14px;">
+            <div style="width: 45%;">
+                <p style="margin: 0 0 20px 0;"><b>Сдал (Кладовщик):</b></p>
+                <div style="border-bottom: 1px solid #000; width: 100%; margin-bottom: 5px;"></div>
+                <p style="margin: 0; font-size: 12px; text-align: center; color: #555;">(подпись)</p>
+            </div>
+            <div style="width: 45%;">
+                <p style="margin: 0 0 20px 0;"><b>Принял (Прораб):</b></p>
+                <div style="border-bottom: 1px solid #000; width: 100%; margin-bottom: 5px;"></div>
+                <p style="margin: 0; font-size: 12px; text-align: center; color: #555;">(подпись)</p>
+            </div>
+        </div>
+    </div>`;
+}
+
+async function exportWarehousePDF() {
+    if (!window.jspdf || !window.html2canvas) {
+        alert("Библиотеки для PDF не загружены.");
+        return;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF('p', 'mm', 'a4');
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 10;
+    const usableWidth = pageWidth - margin * 2;
+
+    const tempDiv = document.createElement('div');
+    tempDiv.style.position = 'absolute';
+    tempDiv.style.left = '-9999px';
+    tempDiv.innerHTML = createWarehousePdfHtml();
+    document.body.appendChild(tempDiv);
+
+    try {
+        const canvas = await html2canvas(tempDiv, { scale: 2, backgroundColor: '#ffffff' });
+        document.body.removeChild(tempDiv);
+
+        const pxPerMm = canvas.width / usableWidth;
+        const pageContentHeightPx = (pageHeight - margin * 2) * pxPerMm;
+        let renderedHeight = 0;
+        let pageIndex = 0;
+
+        while (renderedHeight < canvas.height) {
+            const sliceHeight = Math.min(pageContentHeightPx, canvas.height - renderedHeight);
+            const sliceCanvas = document.createElement('canvas');
+            sliceCanvas.width = canvas.width;
+            sliceCanvas.height = sliceHeight;
+            const ctx = sliceCanvas.getContext('2d');
+            ctx.drawImage(canvas, 0, renderedHeight, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight);
+
+            const imgData = sliceCanvas.toDataURL('image/jpeg', 0.95);
+            const sliceHeightMm = sliceHeight / pxPerMm;
+
+            if (pageIndex > 0) doc.addPage();
+            doc.addImage(imgData, 'JPEG', margin, margin, usableWidth, sliceHeightMm);
+
+            renderedHeight += sliceHeight;
+            pageIndex++;
+        }
+
+        const pdfBase64 = doc.output('datauristring');
+        if (window.AndroidApp && window.AndroidApp.savePdf) {
+            window.AndroidApp.savePdf(pdfBase64);
+            logStatus('PDF сохранен!');
+        } else {
+            doc.save(`Склад_${new Date().getTime()}.pdf`);
+        }
+    } catch (error) {
+        console.error(error);
+        alert("Ошибка при создании PDF: " + error.message);
+    }
 }
 
 // ==========================================

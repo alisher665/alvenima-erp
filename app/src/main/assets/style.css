@@ -685,13 +685,11 @@ input:focus, select:focus, textarea:focus {
 }
 
 /* Когда поле в фокусе или в нем есть текст — заголовок уезжает наверх */
-/* Когда поле в фокусе или в нем есть текст — заголовок уезжает наверх */
 .input-wrapper input:focus ~ label,
-.input-wrapper input:valid ~ label,
+.input-wrapper input:not(:placeholder-shown) ~ label,
 .input-wrapper textarea:focus ~ label,
-.input-wrapper textarea:valid ~ label,
-.input-wrapper select:focus ~ label,
-.input-wrapper select:valid ~ label {
+.input-wrapper textarea:not(:placeholder-shown) ~ label,
+.input-wrapper select:focus ~ label {
     top: -10px;
     left: 10px;
     font-size: 12px;
