@@ -6,12 +6,15 @@ let pendingDeleteAction = null;
 let wasRecordingBeforeTts = false;
 let pendingItemId = null;
 let currentView = null;
+let warehouseFilterMode = 'all';
+let editingWarehouseId = null;
 
 // Глобальное состояние открытых аккордеонов.
 const openAccordions = {
     smeta: new Set(),
     finance: new Set(),
-    diary: new Set()
+    diary: new Set(),
+    warehouse: new Set()
 };
 
 function clearAccordionState(screen) {
@@ -216,6 +219,7 @@ window.switchView = function(viewId) {
     if (viewId === 'smeta')   renderEstimate();
     if (viewId === 'finance') renderFinance();
     if (viewId === 'diary')   renderDiary();
+    if (viewId === 'warehouse') renderWarehouse();
 
     let micBtn = document.getElementById('floating-mic');
     if (viewId === 'splash' || viewId === 'objects') {
@@ -243,7 +247,7 @@ window.switchView = function(viewId) {
         if (el) el.innerText = '📁 ' + objectName;
     });
 
-    logStatus(`Экран: ${viewId}. Аккордеоны экрана-источника сброшены.`);
+    logStatus(`Экран: ${viewId}.`);
 };
 
 const micBtn = document.getElementById('floating-mic');
@@ -537,96 +541,6 @@ function parseDiaryVoice(lower) {
     }
 }
 
-function parseWarehouseVoice(lower) {
-    statusDiv.innerText = '🔍 Услышано: ' + lower;
-    let text = lower.replace(/[^а-яё0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
-    let words = text.split(' ').filter(w => w.length > 0);
-    const localMap = { 'ноль':0,'один':1,'одна':1,'два':2,'две':2,'три':3,'четыре':4,'пять':5,'шесть':6,'семь':7,'восемь':8,'девять':9,'десять':10,'одиннадцать':11,'двенадцать':12,'тринадцать':13,'четырнадцать':14,'пятнадцать':15,'шестнадцать':16,'семнадцать':17,'восемнадцать':18,'девятнадцать':19,'двадцать':20,'тридцать':30,'сорок':40,'пятьдесят':50,'шестьдесят':60,'семьдесят':70,'восемьдесят':80,'девяносто':90,'сто':100,'двести':200,'триста':300,'четыреста':400,'пятьсот':500,'шестьсот':600,'семьсот':700,'восемьсот':800,'девятьсот':900,'тысяча':1000, 'тысячи':1000, 'тысяч':1000,'миллион':1000000, 'миллиона':1000000, 'миллионов':1000000 };
-
-    function getNumber(str) {
-        if (!str) return 0;
-        let arr = str.split(' '); let result = 0; let current = 0;
-        for (let w of arr) {
-            let cleanW = w.replace(/[^а-яё0-9]/g, '');
-            if (!cleanW) continue;
-            if (cleanW.match(/^\d+$/)) { current += parseFloat(cleanW); }
-            else if (localMap[cleanW] !== undefined) {
-                let val = localMap[cleanW];
-                if (val >= 1000) { if (current === 0) current = 1; result += current * val; current = 0; }
-                else { current += val; }
-            }
-        }
-        return result + current;
-    }
-
-    if (words.includes('удали') || words.includes('удалить')) {
-        let nameWord = ""; let qtyToRemove = 0;
-        let skip = ['удали', 'удалить', 'материал', 'на', 'со', 'склада', 'мешок', 'мешка', 'мешков', 'меш', 'кг', 'метр', 'штук', 'штуки'];
-        for (let w of words) {
-            let cleanW = w.replace(/[^а-яё0-9]/g, '');
-            if (!cleanW) continue;
-            if (skip.includes(cleanW)) continue;
-            if (cleanW.match(/^\d+$/) || localMap[cleanW] !== undefined) { qtyToRemove += (cleanW.match(/^\d+$/) ? parseFloat(cleanW) : localMap[cleanW]); }
-            else if (!nameWord) { nameWord = cleanW; }
-        }
-        if (!nameWord) { statusDiv.innerText = "⚠️ Не понял, что удалить. Скажите: 'Удали цемент'"; speak("Не понял"); return; }
-        const itemIndex = warehouseData.findIndex(i => i.name.toLowerCase().includes(nameWord.toLowerCase()));
-        if (itemIndex === -1) { statusDiv.innerText = `⚠️ Материал "${nameWord}" не найден.`; speak(`Не найдено`); return; }
-        const item = warehouseData[itemIndex];
-        if (qtyToRemove > 0) {
-            if (qtyToRemove > item.qty) { statusDiv.innerText = `⚠️ На складе только ${item.qty} ${item.unit}. Нельзя вычесть ${qtyToRemove}.`; speak("Недостаточно материала"); return; }
-            item.qty -= qtyToRemove; item.id = Date.now();
-            localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(warehouseData)); renderWarehouse();
-            statusDiv.innerText = `✅ Вычтено: ${qtyToRemove} ${item.unit} "${item.name}". Остаток: ${item.qty}`; speak(`Вычтено`); return;
-        }
-        awaitingConfirm = true; pendingDeleteAction = 'warehouse_item'; pendingItemId = item.id;
-        statusDiv.innerText = `⚠️ Удалить "${item.name}" полностью? Скажите 'Да' или 'Нет'.`; speak(`Вы уверены?`); return;
-    }
-
-    let isOnlyAdd = (words.length === 1 || (words.length === 2 && words[0] === 'на')) && (words.includes('добавь') || words.includes('добавить') || words.includes('сохрани') || words.includes('сохранить'));
-    if (isOnlyAdd) {
-        const nameEl = document.getElementById('wh-name'); const qtyEl = document.getElementById('wh-qty'); const addBtn = document.getElementById('add-wh-btn');
-        if (nameEl && nameEl.value.trim() !== '' && qtyEl && parseFloat(qtyEl.value) > 0 && addBtn) {
-            addBtn.click(); statusDiv.innerText = `✅ Сохранено: ${nameEl.value}`; speak('Сохранено');
-        } else { statusDiv.innerText = "⚠️ Поля пустые. Сначала продиктуйте материал."; speak('Поля пустые'); }
-        return;
-    }
-
-    let poIndex = -1;
-    for (let i = 0; i < words.length; i++) { if (words[i] === 'по' || words[i] === 'цена' || words[i] === 'за') { poIndex = i; break; } }
-    let qtyPart = ''; let pricePart = '';
-    if (poIndex !== -1) { qtyPart = words.slice(0, poIndex).join(' '); pricePart = words.slice(poIndex + 1).join(' '); } else { qtyPart = text; pricePart = ''; }
-    let qty = getNumber(qtyPart); let price = getNumber(pricePart);
-    let unit = 'шт.';
-    if (qtyPart.includes('меш')) unit = 'меш.';
-    else if (qtyPart.includes('кг') || qtyPart.includes('килограмм')) unit = 'кг';
-    else if (qtyPart.includes('метр') || qtyPart.includes('м.')) unit = 'м.';
-    else if (qtyPart.includes('квадрат') || qtyPart.includes('м2')) unit = 'м²';
-    let skipWords = ['по','цена','за','добавь','добавьте','добавить','на','склад','запиши','запишите','сохрани','сохраните','и','с','в','рублей','рубль','рубля','мешок','мешка','мешков','меш','кг','килограмм','килограмма','килограммов','метр','метра','метров','квадрат','квадратов','квадрата','м2','штука','штук','штуки','шт'];
-    let nameWords = [];
-    for (let w of words) {
-        let cleanW = w.replace(/[^а-яё]/g, '');
-        if (!cleanW) continue;
-        if (skipWords.includes(cleanW)) continue;
-        if (localMap[cleanW] !== undefined) continue;
-        if (cleanW.match(/^\d+$/)) continue;
-        nameWords.push(w);
-    }
-    let finalName = nameWords.join(' ').trim();
-    if (finalName.length > 0) { finalName = finalName.charAt(0).toUpperCase() + finalName.slice(1); } else { finalName = 'Материал'; }
-    const nameEl = document.getElementById('wh-name'); const qtyEl = document.getElementById('wh-qty'); const priceEl = document.getElementById('wh-price'); const unitEl = document.getElementById('wh-unit');
-    if (nameEl) nameEl.value = finalName;
-    if (qtyEl) qtyEl.value = qty > 0 ? qty : '';
-    if (priceEl) priceEl.value = price > 0 ? price : '';
-    if (unitEl) { for (let i = 0; i < unitEl.options.length; i++) { if (unitEl.options[i].value === unit) { unitEl.selectedIndex = i; break; } } }
-    if (settings.autosave === true && finalName && qty > 0) {
-        const addBtn = document.getElementById('add-wh-btn');
-        if (addBtn) { addBtn.click(); return; }
-    }
-    statusDiv.innerText = `📦 В поля: ${finalName} | Кол-во: ${qty} | Цена: ${price}`;
-    speak('Данные вставлены');
-}
-
 function parseReminderVoice(lower) {
     let now = new Date(); let targetDate = new Date(now.getTime()); let foundTime = false; let hour = -1; let minute = -1;
     let relMatch = lower.match(/через\s+([а-яё0-9]+)\s*(минут|минуту|минуты|час|часа|часов)?/);
@@ -675,6 +589,358 @@ function parseReminderVoice(lower) {
     } else { statusDiv.innerText = "Ошибка: Нет доступа к будильнику"; }
 }
 
+// ==========================================
+// СКЛАД (НОВАЯ ЛОГИКА)
+// ==========================================
+function renderWarehouse() {
+  const box = document.getElementById('warehouse-list');
+  if (!box) return;
+
+  // Синхронизируем активную кнопку фильтра при отрисовке
+  const activeBtn = document.querySelector(`.filter-btn[data-filter="${warehouseFilterMode || 'all'}"]`);
+  if (activeBtn) {
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      activeBtn.classList.add('active');
+  }
+
+  const key = getStorageKey('warehouse');
+  let data = [];
+  try {
+    data = JSON.parse(localStorage.getItem(key) || '[]');
+  } catch (e) {
+    data = [];
+  }
+  if (!Array.isArray(data)) data = [];
+
+  // 1. Поиск
+  const searchInput = document.getElementById('wh-search');
+  const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+
+  // 2. Фильтр
+  if (typeof warehouseFilterMode === 'undefined' || !warehouseFilterMode) {
+    warehouseFilterMode = 'all';
+  }
+
+  // 3. Применяем поиск + фильтр
+  let filtered = data.filter(item => {
+    const name = (item.name || '').toLowerCase();
+    const cat = (item.category || '').toLowerCase();
+    const matchQuery = !query || name.indexOf(query) !== -1 || cat.indexOf(query) !== -1;
+    if (!matchQuery) return false;
+
+    const qty = Number(item.qty) || 0;
+    if (warehouseFilterMode === 'low') return qty > 0 && qty <= 5;
+    if (warehouseFilterMode === 'out') return qty <= 0;
+    return true;
+  });
+
+  // 4. Плашка предупреждений
+  updateWarehouseWarnings(data);
+
+  // 5. Пустое состояние
+  if (filtered.length === 0) {
+    box.innerHTML = '<div class="empty-state" style="text-align:center; color:#ff9800; padding:20px; font-weight:bold;">' +
+      (data.length === 0
+        ? 'Склад пуст. Добавьте материал.'
+        : 'Ничего не найдено по текущему фильтру или поиску.') +
+      '</div>';
+    return;
+  }
+
+  // 6. Группировка по категориям
+  const groups = {};
+  filtered.forEach(item => {
+    const cat = item.category && item.category.trim() ? item.category.trim() : 'Без категории';
+    if (!groups[cat]) groups[cat] = [];
+    groups[cat].push(item);
+  });
+
+  // 7. Сортировка категорий по алфавиту
+  const categories = Object.keys(groups).sort((a, b) => a.localeCompare(b, 'ru'));
+
+  // 8. Рендер аккордеонов
+  let html = '';
+  categories.forEach(cat => {
+    const isOpen = openAccordions.warehouse.has(cat);
+    const items = groups[cat].slice().sort((a, b) =>
+      (a.name || '').localeCompare(b.name || '', 'ru')
+    );
+
+    html += '<div class="wh-category-block" data-category="' + cat + '" style="margin-bottom:15px; background:#1a1a1a; border-radius:10px; overflow:hidden; border:1px solid #333;">';
+    html += '<div class="wh-category-header" onclick="toggleWarehouseCategory(\'' + cat.replace(/'/g, "\\'") + '\')" style="display:flex; justify-content:space-between; align-items:center; padding:12px 15px; background:#222; cursor:pointer; font-weight:bold; color:#fff;">';
+    html += '<span class="wh-category-arrow">' + (isOpen ? '▾' : '▸') + '</span>';
+    html += '<span class="wh-category-name" style="flex:1; margin-left:10px;">' + cat + '</span>';
+    html += '<span class="wh-category-count" style="background:#333; color:#00c2ff; padding:2px 8px; border-radius:10px; font-size:12px;">' + items.length + '</span>';
+    html += '</div>';
+
+    if (isOpen) {
+      html += '<div class="wh-category-body" style="padding:10px;">';
+      items.forEach(item => {
+        const qty = Number(item.qty) || 0;
+        const qtyColor = qty <= 0 ? 'color:#ff4444; font-weight:bold;' : (qty <= 5 ? 'color:#ff9800; font-weight:bold;' : 'color:#aaa;');
+        html += '<div class="wh-card" style="display:flex; justify-content:space-between; align-items:center; background:#151515; border:1px solid #222; border-radius:8px; padding:10px; margin-bottom:8px;">';
+        html += '<div class="wh-card-main">';
+        html += '<div class="wh-card-title" style="font-weight:bold; font-size:14px; color:#fff;">' + (item.name || '') + '</div>';
+        html += '<div class="wh-card-qty" style="font-size:13px; ' + qtyColor + '">' + qty + ' ' + (item.unit || '') + '</div>';
+        if (item.price) {
+          html += '<div class="wh-card-price" style="font-size:12px; color:#666;">' + item.price + ' ₽</div>';
+        }
+        html += '</div>';
+        html += '<div class="wh-card-actions" style="display:flex; gap:5px;">';
+        html += '<button class="wh-btn" onclick="changeWarehouseQty(' + item.id + ', 1)" style="background:#222; border:1px solid #444; color:#00ff88; border-radius:6px; padding:5px 10px; cursor:pointer;">+</button>';
+        html += '<button class="wh-btn" onclick="changeWarehouseQty(' + item.id + ', -1)" style="background:#222; border:1px solid #444; color:#ff9800; border-radius:6px; padding:5px 10px; cursor:pointer;">-</button>';
+        html += '<button class="wh-btn" onclick="startEditWarehouse(' + item.id + ')" style="background:#222; border:1px solid #444; color:#00c2ff; border-radius:6px; padding:5px 10px; cursor:pointer;">✏️</button>';
+        html += '<button class="wh-btn" onclick="deleteWarehouseItem(' + item.id + ')" style="background:#222; border:1px solid #444; color:#ff4444; border-radius:6px; padding:5px 10px; cursor:pointer;">✕</button>';
+        html += '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+  });
+
+  box.innerHTML = html;
+}
+
+// Раскрытие/сворачивание категории
+function toggleWarehouseCategory(cat) {
+    if (openAccordions.warehouse.has(cat)) {
+        openAccordions.warehouse.delete(cat);
+    } else {
+        openAccordions.warehouse.add(cat);
+    }
+    renderWarehouse();
+}
+
+// Изменение количества (+/-)
+function changeWarehouseQty(id, delta) {
+    let data = JSON.parse(localStorage.getItem(getStorageKey('warehouse'))) || [];
+    let item = data.find(i => i.id === id);
+    if (item) {
+        item.qty = (Number(item.qty) || 0) + delta;
+        if (item.qty < 0) item.qty = 0;
+        localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(data));
+        renderWarehouse();
+        logStatus('Количество обновлено: ' + item.name);
+    }
+}
+
+// Удаление материала
+function deleteWarehouseItem(id) {
+    if (confirm('Удалить этот материал со склада?')) {
+        let data = JSON.parse(localStorage.getItem(getStorageKey('warehouse'))) || [];
+        data = data.filter(i => i.id !== id);
+        localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(data));
+        if (editingWarehouseId === id) {
+            cancelEditWarehouse();
+        } else {
+            renderWarehouse();
+        }
+        logStatus('Материал удален.');
+    }
+}
+
+// Редактирование материала
+function startEditWarehouse(id) {
+    let data = JSON.parse(localStorage.getItem(getStorageKey('warehouse'))) || [];
+    const item = data.find(i => i.id === id);
+    if (!item) return;
+
+    document.getElementById('wh-name').value = item.name;
+    document.getElementById('wh-qty').value = item.qty;
+    document.getElementById('wh-unit').value = item.unit;
+    document.getElementById('wh-price').value = item.price || '';
+
+    editingWarehouseId = id;
+    const cancelBtn = document.getElementById('cancel-edit-wh-btn');
+    if (cancelBtn) cancelBtn.classList.remove('hidden');
+    document.getElementById('add-wh-btn').innerText = "Сохранить изменения";
+
+    const formCard = document.getElementById('wh-form-card');
+    if (formCard) formCard.scrollIntoView({ behavior: 'smooth' });
+    logStatus("✏️ Режим редактирования");
+}
+
+function cancelEditWarehouse() {
+    editingWarehouseId = null;
+    document.getElementById('wh-name').value = '';
+    document.getElementById('wh-qty').value = '';
+    document.getElementById('wh-price').value = '';
+    const cancelBtn = document.getElementById('cancel-edit-wh-btn');
+    if (cancelBtn) cancelBtn.classList.add('hidden');
+    document.getElementById('add-wh-btn').innerText = "Добавить (Приход)";
+    logStatus("Редактирование отменено");
+}
+
+function updateWarehouseWarnings(data) {
+    const block = document.getElementById('wh-warning-block');
+    const list = document.getElementById('wh-warning-list');
+    if (!block || !list) return;
+
+    const lowItems = data.filter(item => {
+        const qty = Number(item.qty) || 0;
+        return qty > 0 && qty <= 5;
+    });
+
+    if (lowItems.length === 0) {
+        block.style.display = 'none';
+        list.innerHTML = '';
+        return;
+    }
+
+    let html = '';
+    lowItems.forEach(item => {
+        html += '• ' + item.name + ' (осталось ' + item.qty + ' ' + (item.unit || '') + ')<br>';
+    });
+
+    list.innerHTML = html;
+    block.style.display = 'block';
+}
+
+function setWarehouseFilter(mode) {
+    warehouseFilterMode = mode;
+    renderWarehouse();
+}
+
+function addWarehouseManual() {
+    const nameEl = document.getElementById('wh-name');
+    const qtyEl = document.getElementById('wh-qty');
+    const unitEl = document.getElementById('wh-unit');
+    const priceEl = document.getElementById('wh-price');
+
+    const name = nameEl.value.trim();
+    const qty = parseFloat(qtyEl.value) || 0;
+    const unit = unitEl.value;
+    const price = parseFloat(priceEl.value) || 0;
+
+    if (!name) { logStatus('Ошибка: Введите название материала'); return; }
+    if (qty <= 0) { logStatus('Ошибка: Количество должно быть больше 0'); return; }
+
+    let data = JSON.parse(localStorage.getItem(getStorageKey('warehouse'))) || [];
+
+    if (editingWarehouseId !== null) {
+        const index = data.findIndex(i => i.id === editingWarehouseId);
+        if (index !== -1) {
+            data[index] = { ...data[index], name, qty, unit, price };
+        }
+        editingWarehouseId = null;
+        const cancelBtn = document.getElementById('cancel-edit-wh-btn');
+        if (cancelBtn) cancelBtn.classList.add('hidden');
+        document.getElementById('add-wh-btn').innerText = "Добавить (Приход)";
+    } else {
+        const existingItem = data.find(i => i.name.toLowerCase() === name.toLowerCase() && i.unit === unit);
+        if (existingItem) {
+            existingItem.qty = (Number(existingItem.qty) || 0) + qty;
+            if (price > 0) existingItem.price = price;
+        } else {
+            data.push({
+                id: Date.now(),
+                name: name,
+                category: 'Без категории',
+                qty: qty,
+                unit: unit,
+                price: price
+            });
+            openAccordions.warehouse.add('Без категории');
+        }
+    }
+
+    localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(data));
+
+    nameEl.value = '';
+    qtyEl.value = '';
+    priceEl.value = '';
+
+    renderWarehouse();
+    logStatus('Сохранено на склад');
+    speak("Сохранено");
+}
+
+function parseWarehouseVoice(lower) {
+    statusDiv.innerText = '🔍 Услышано: ' + lower;
+
+    if (lower.includes('покажи все') || lower.includes('все материалы')) {
+        setWarehouseFilter('all'); statusDiv.innerText = 'Показаны все материалы'; speak("Показаны все материалы"); return;
+    }
+    if (lower.includes('покажи заканчивающиеся') || lower.includes('что заканчивается') || lower.includes('мало осталось')) {
+        setWarehouseFilter('low'); statusDiv.innerText = 'Показаны заканчивающиеся материалы'; speak("Показаны заканчивающиеся материалы"); return;
+    }
+    if (lower.includes('покажи отсутствующие') || lower.includes('нет в наличии') || lower.includes('что кончилось')) {
+        setWarehouseFilter('out'); statusDiv.innerText = 'Показаны отсутствующие материалы'; speak("Показаны отсутствующие материалы"); return;
+    }
+
+    let text = lower.replace(/[^а-яё0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    let words = text.split(' ').filter(w => w.length > 0);
+
+    function getNumber(str) {
+        if (!str) return 0;
+        let arr = str.split(' '); let result = 0; let current = 0;
+        for (let w of arr) {
+            let cleanW = w.replace(/[^а-яё0-9]/g, '');
+            if (!cleanW) continue;
+            if (cleanW.match(/^\d+$/)) { current += parseFloat(cleanW); }
+            else if (NUMBERS_MAP[cleanW] !== undefined) {
+                let val = NUMBERS_MAP[cleanW];
+                if (val >= 1000) { if (current === 0) current = 1; result += current * val; current = 0; }
+                else { current += val; }
+            }
+        }
+        return result + current;
+    }
+
+    let isIncome = lower.includes('добавь') || lower.includes('приход') || lower.includes('купил') || lower.includes('закупи');
+    let isExpense = lower.includes('расход') || lower.includes('спиши') || lower.includes('потратил') || lower.includes('израсходовал');
+
+    if (!isIncome && !isExpense) {
+        statusDiv.innerText = "⚠️ Не понял команду. Скажите 'Добавь 5 мешков цемента' или 'Расход 2 кг гвоздей'."; return;
+    }
+
+    let nameWords = []; let qty = 0; let unit = 'шт.';
+    let skipWords = ['добавь', 'приход', 'купил', 'закупи', 'расход', 'спиши', 'потратил', 'израсходовал', 'материал', 'на', 'со', 'склада', 'склад', 'и', 'в'];
+
+    for (let i = 0; i < words.length; i++) {
+        let w = words[i].replace(/[^а-яё0-9]/g, '');
+        if (!w) continue;
+        if (skipWords.includes(w)) continue;
+        if (w.match(/^\d+$/) || NUMBERS_MAP[w] !== undefined) { qty += getNumber(w); continue; }
+        if (w === 'мешок' || w === 'мешка' || w === 'мешков' || w === 'меш') { unit = 'меш.'; continue; }
+        if (w === 'кг' || w === 'килограмм' || w === 'килограмма' || w === 'килограммов') { unit = 'кг'; continue; }
+        if (w === 'метр' || w === 'метра' || w === 'метров') { unit = 'м.'; continue; }
+        if (w === 'штука' || w === 'штуки' || w === 'штук') { unit = 'шт.'; continue; }
+        if (w === 'литр' || w === 'литра' || w === 'литров') { unit = 'л.'; continue; }
+        nameWords.push(words[i]);
+    }
+
+    let finalName = nameWords.join(" ").trim();
+    if (finalName.length > 0) { finalName = finalName.charAt(0).toUpperCase() + finalName.slice(1); }
+    else { statusDiv.innerText = "⚠️ Не понял название материала."; speak("Не понял название"); return; }
+    if (qty <= 0) { statusDiv.innerText = "⚠️ Не понял количество. Скажите, например: 'Добавь 5 цемента'."; speak("Не понял количество"); return; }
+
+    let data = JSON.parse(localStorage.getItem(getStorageKey('warehouse'))) || [];
+    let item = data.find(i => i.name.toLowerCase().includes(finalName.toLowerCase()));
+
+    if (isIncome) {
+        if (item) {
+            item.qty = (Number(item.qty) || 0) + qty;
+            logStatus(`Приход: ${item.name} +${qty} ${unit}. Теперь ${item.qty}`); speak(`Принято ${qty} ${unit} ${item.name}`);
+        } else {
+            data.push({ id: Date.now(), name: finalName, category: 'Без категории', qty: qty, unit: unit, price: 0 });
+            logStatus(`Добавлен новый материал: ${finalName} - ${qty} ${unit}`); speak(`Добавлен новый материал ${finalName}`);
+            openAccordions.warehouse.add('Без категории');
+        }
+    } else if (isExpense) {
+        if (!item) { statusDiv.innerText = `⚠️ Материал "${finalName}" не найден.`; speak("Материал не найден"); return; }
+        if (item.qty < qty) { statusDiv.innerText = `⚠️ На складе только ${item.qty} ${item.unit}. Нельзя списать ${qty}.`; speak(`На складе только ${item.qty}`); return; }
+        item.qty = (Number(item.qty) || 0) - qty;
+        logStatus(`Расход: ${item.name} -${qty} ${unit}. Остаток ${item.qty}`); speak(`Списано ${qty} ${unit} ${item.name}. Остаток ${item.qty}`);
+    }
+    localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(data));
+    renderWarehouse();
+}
+
+// ==========================================
+// СМЕТА, ФИНАНСЫ, ДНЕВНИК, НАПОМИНАНИЯ
+// ==========================================
 window.handleLogoUpload = function(event) {
     const file = event.target.files[0];
     if (file) {
@@ -1134,160 +1400,8 @@ window.deleteReminder = (id) => { remindersData = remindersData.filter(r => r.id
 window.clearAllReminders = () => { if (confirm("Удалить все напоминания?")) { remindersData = []; localStorage.setItem(getStorageKey('reminders'), JSON.stringify(remindersData)); renderReminders(); } };
 
 let warehouseData = JSON.parse(localStorage.getItem(getStorageKey('warehouse'))) || [];
-let editingWarehouseId = null;
 
-window.renderWarehouse = function() {
-    const listEl = document.getElementById('warehouse-list');
-    const totalRow = document.getElementById('wh-total-row');
-    const totalSumEl = document.getElementById('wh-total-sum');
-
-    if (!listEl) return;
-
-    if (warehouseData.length === 0) {
-        listEl.innerHTML = '<p style="color: #666; text-align: center;">Склад пуст</p>';
-        if (totalRow) totalRow.style.display = 'none';
-        return;
-    }
-
-    let html = '';
-    warehouseData.forEach(item => {
-        const total = (item.qty * item.price).toFixed(2);
-        html += `
-        <div class="warehouse-item" style="display: flex; justify-content: space-between; align-items: center; background: #1a1a1a; padding: 12px; border-radius: 10px; margin-bottom: 10px; border: 1px solid #333;">
-            <div class="warehouse-info" style="flex: 1;">
-                <div class="warehouse-name" style="font-weight: bold; color: #fff; font-size: 15px;">${item.name}</div>
-                <div class="warehouse-details" style="color: #888; font-size: 13px; margin-top: 4px;">
-                    <span style="color: #00c2ff; font-weight: bold;">${item.qty} ${item.unit}</span> × ${item.price} ₽ = <span style="color: #00ff88;">${total} ₽</span>
-                </div>
-            </div>
-            <div style="display: flex; gap: 5px; margin-left: 10px;">
-                <button onclick="consumeWarehouseItem(${item.id})" style="background: #222; border: 1px solid #444; color: #ff9800; border-radius: 8px; padding: 8px; cursor: pointer;" title="Списать">📤</button>
-                <button onclick="editWarehouseItem(${item.id})" style="background: #222; border: 1px solid #444; color: #00c2ff; border-radius: 8px; padding: 8px; cursor: pointer;" title="Редактировать">✏️</button>
-                <button onclick="deleteWarehouseItem(${item.id})" style="background: #222; border: 1px solid #444; color: #ff4444; border-radius: 8px; padding: 8px; cursor: pointer;" title="Удалить">✕</button>
-            </div>
-        </div>`;
-    });
-    listEl.innerHTML = html;
-
-    const totalSum = warehouseData.reduce((sum, item) => sum + (item.qty * item.price), 0);
-    if (totalRow && totalSumEl) {
-        totalRow.style.display = 'flex';
-        totalSumEl.innerText = totalSum.toFixed(2) + ' ' + (settings.currency || '₽');
-    }
-};
-
-window.addWarehouseManual = function() {
-    const nameEl = document.getElementById('wh-name');
-    const qtyEl = document.getElementById('wh-qty');
-    const unitEl = document.getElementById('wh-unit');
-    const priceEl = document.getElementById('wh-price');
-
-    const name = nameEl.value.trim();
-    const qty = parseFloat(qtyEl.value);
-    const unit = unitEl.value;
-    const price = parseFloat(priceEl.value) || 0;
-
-    if (!name || isNaN(qty) || qty <= 0) {
-        logStatus("⚠️ Заполните название и количество");
-        return;
-    }
-
-    if (editingWarehouseId !== null) {
-        const index = warehouseData.findIndex(i => i.id === editingWarehouseId);
-        if (index !== -1) {
-            warehouseData[index] = { ...warehouseData[index], name, qty, unit, price };
-        }
-        editingWarehouseId = null;
-        const cancelBtn = document.getElementById('cancel-edit-wh-btn');
-        if (cancelBtn) cancelBtn.classList.add('hidden');
-        document.getElementById('add-wh-btn').innerText = "Добавить (Приход)";
-    } else {
-        const existingIndex = warehouseData.findIndex(i => i.name.toLowerCase() === name.toLowerCase() && i.unit === unit);
-        if (existingIndex !== -1) {
-            warehouseData[existingIndex].qty += qty;
-            if (price > 0) warehouseData[existingIndex].price = price;
-        } else {
-            warehouseData.push({ id: Date.now(), name, qty, unit, price });
-        }
-    }
-
-    localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(warehouseData));
-
-    nameEl.value = ''; qtyEl.value = ''; priceEl.value = '';
-
-    renderWarehouse();
-    logStatus("✅ Сохранено на склад");
-    speak("Сохранено");
-};
-
-window.editWarehouseItem = function(id) {
-    const item = warehouseData.find(i => i.id === id);
-    if (!item) return;
-
-    document.getElementById('wh-name').value = item.name;
-    document.getElementById('wh-qty').value = item.qty;
-    document.getElementById('wh-unit').value = item.unit;
-    document.getElementById('wh-price').value = item.price;
-
-    editingWarehouseId = id;
-    const cancelBtn = document.getElementById('cancel-edit-wh-btn');
-    if (cancelBtn) cancelBtn.classList.remove('hidden');
-    document.getElementById('add-wh-btn').innerText = "Сохранить изменения";
-
-    const formCard = document.getElementById('wh-form-card');
-    if (formCard) formCard.scrollIntoView({ behavior: 'smooth' });
-    logStatus("✏️ Режим редактирования");
-};
-
-window.cancelEditWarehouse = function() {
-    editingWarehouseId = null;
-    document.getElementById('wh-name').value = '';
-    document.getElementById('wh-qty').value = '';
-    document.getElementById('wh-price').value = '';
-    const cancelBtn = document.getElementById('cancel-edit-wh-btn');
-    if (cancelBtn) cancelBtn.classList.add('hidden');
-    document.getElementById('add-wh-btn').innerText = "Добавить (Приход)";
-    logStatus("Редактирование отменено");
-};
-
-window.consumeWarehouseItem = function(id) {
-    const item = warehouseData.find(i => i.id === id);
-    if (!item) return;
-
-    let qtyToConsume = prompt(`Сколько списать: ${item.name} (${item.unit})? Остаток: ${item.qty}`, "1");
-    if (qtyToConsume === null) return;
-
-    qtyToConsume = parseFloat(qtyToConsume);
-    if (isNaN(qtyToConsume) || qtyToConsume <= 0) {
-        logStatus("⚠️ Неверное количество");
-        return;
-    }
-
-    if (qtyToConsume > item.qty) {
-        logStatus(`⚠️ Недостаточно! В наличии только ${item.qty} ${item.unit}`);
-        return;
-    }
-
-    item.qty -= qtyToConsume;
-    if (item.qty <= 0) {
-        warehouseData = warehouseData.filter(i => i.id !== id);
-    }
-
-    localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(warehouseData));
-    renderWarehouse();
-    logStatus("✅ Успешно списано");
-    speak("Списано");
-};
-
-window.deleteWarehouseItem = function(id) {
-    if (confirm("Удалить этот материал со склада?")) {
-        warehouseData = warehouseData.filter(i => i.id !== id);
-        localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(warehouseData));
-        renderWarehouse();
-        logStatus("🗑 Удалено");
-    }
-};
-
+// Экспорт PDF
 function createPdfHtml() {
     const dateStr = new Date().toLocaleDateString('ru-RU'); const docNumber = Math.floor(Date.now() / 1000).toString().slice(-4);
     let rowsHtml = ''; let total = 0;
