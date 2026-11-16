@@ -612,11 +612,48 @@ function renderWarehouse() {
   }
   if (!Array.isArray(data)) data = [];
 
-  // 1. Поиск
-  const searchInput = document.getElementById('wh-search');
-  const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+    // 1. Поиск
+    const searchInput = document.getElementById('wh-search');
+    const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
 
-  // 2. Фильтр
+    // --- НОВЫЙ БЛОК: Умное автозаполнение формы ---
+  if (query.length > 0 && editingWarehouseId === null) {
+      const foundItem = data.find(i => i.name.toLowerCase().includes(query));
+      if (foundItem) {
+          const nameEl = document.getElementById('wh-name');
+          const qtyEl = document.getElementById('wh-qty');
+          const unitEl = document.getElementById('wh-unit');
+          const priceEl = document.getElementById('wh-price');
+          const categoryEl = document.getElementById('wh-category');
+          const addBtn = document.getElementById('add-wh-btn');
+          const cancelBtn = document.getElementById('cancel-edit-wh-btn');
+
+          // Заполняем только если поле пустое
+          if (nameEl && nameEl.value.trim() === '') {
+              nameEl.value = foundItem.name;
+              if (qtyEl) qtyEl.value = foundItem.qty || 0;
+              if (unitEl) unitEl.value = foundItem.unit || 'шт.';
+              if (priceEl) priceEl.value = foundItem.price || '';
+              if (categoryEl && foundItem.category) categoryEl.value = foundItem.category;
+
+              // Включаем режим редактирования
+              editingWarehouseId = foundItem.id;
+              if (addBtn) addBtn.innerText = "Сохранить изменения";
+              if (cancelBtn) cancelBtn.classList.remove('hidden');
+          }
+      }
+  } else if (query.length === 0 && editingWarehouseId === null) {
+      // Очистка формы при пустом поиске
+      const nameEl = document.getElementById('wh-name');
+      if (nameEl && nameEl.value !== '') {
+          document.getElementById('wh-name').value = '';
+          document.getElementById('wh-qty').value = '';
+          document.getElementById('wh-price').value = '';
+      }
+  }
+
+    // ----------------------------------------------
+    // 2. Фильтр
   if (typeof warehouseFilterMode === 'undefined' || !warehouseFilterMode) {
     warehouseFilterMode = 'all';
   }
@@ -751,6 +788,13 @@ function startEditWarehouse(id) {
     document.getElementById('wh-unit').value = item.unit;
     document.getElementById('wh-price').value = item.price || '';
 
+    // --- НОВЫЙ БЛОК ---
+    const categoryEl = document.getElementById('wh-category');
+    if (categoryEl && item.category) {
+        categoryEl.value = item.category;
+    }
+    // ------------------
+
     editingWarehouseId = id;
     const cancelBtn = document.getElementById('cancel-edit-wh-btn');
     if (cancelBtn) cancelBtn.classList.remove('hidden');
@@ -807,11 +851,13 @@ function addWarehouseManual() {
     const qtyEl = document.getElementById('wh-qty');
     const unitEl = document.getElementById('wh-unit');
     const priceEl = document.getElementById('wh-price');
+    const categoryEl = document.getElementById('wh-category');
 
     const name = nameEl.value.trim();
     const qty = parseFloat(qtyEl.value) || 0;
     const unit = unitEl.value;
     const price = parseFloat(priceEl.value) || 0;
+    const category = categoryEl ? categoryEl.value : 'Без категории';
 
     if (!name) { logStatus('Ошибка: Введите название материала'); return; }
     if (qty <= 0) { logStatus('Ошибка: Количество должно быть больше 0'); return; }
@@ -819,39 +865,42 @@ function addWarehouseManual() {
     let data = JSON.parse(localStorage.getItem(getStorageKey('warehouse'))) || [];
 
     if (editingWarehouseId !== null) {
+        // РЕЖИМ РЕДАКТИРОВАНИЯ
         const index = data.findIndex(i => i.id === editingWarehouseId);
         if (index !== -1) {
-            data[index] = { ...data[index], name, qty, unit, price };
+            data[index] = { ...data[index], name, qty, unit, price, category };
         }
         editingWarehouseId = null;
         const cancelBtn = document.getElementById('cancel-edit-wh-btn');
         if (cancelBtn) cancelBtn.classList.add('hidden');
         document.getElementById('add-wh-btn').innerText = "Добавить (Приход)";
     } else {
+        // РЕЖИМ ДОБАВЛЕНИЯ
         const existingItem = data.find(i => i.name.toLowerCase() === name.toLowerCase() && i.unit === unit);
         if (existingItem) {
             existingItem.qty = (Number(existingItem.qty) || 0) + qty;
             if (price > 0) existingItem.price = price;
+            existingItem.category = category;
         } else {
             data.push({
                 id: Date.now(),
                 name: name,
-                category: 'Без категории',
+                category: category,
                 qty: qty,
                 unit: unit,
                 price: price
-            });
-            openAccordions.warehouse.add('Без категории');
-        }
+        });
+        openAccordions.warehouse.add(category);
     }
+}
 
     localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(data));
 
     nameEl.value = '';
     qtyEl.value = '';
     priceEl.value = '';
+    if (categoryEl) categoryEl.selectedIndex = 0;
 
-    renderWarehouse();
     logStatus('Сохранено на склад');
     speak("Сохранено");
 }
