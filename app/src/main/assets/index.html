@@ -280,21 +280,20 @@
         </div>
 
         <!-- СПИСОК МАТЕРИАЛОВ -->
-        <div class="list-container" style="background: #111; padding: 15px; margin-top: 20px; border-radius: 12px;">
+        <div class="list-container" style="...">
             <div class="list-header-row">
                 <h3 class="list-header" style="margin: 0;">Остатки на складе</h3>
                 <button class="btn-pdf-small" onclick="exportWarehousePDF()">📄 PDF</button>
             </div>
 
-            <div id="warehouse-list"></div>
-
-            <!-- ИТОГОВАЯ СУММА -->
-            <div class="total-row" id="wh-total-row" style="display: none; border-top: 1px solid #333; padding-top: 15px; margin-top: 15px;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span style="font-size: 14px; color: #888;">Общая стоимость:</span>
-                    <span id="wh-total-sum" style="color: #00ff88; font-size: 18px; font-weight: bold;">0 ₽</span>
-                </div>
+            <!-- Блок для вывода общей стоимости -->
+            <div id="wh-total-row" style="display: none; margin-top: 15px; padding: 15px; background: #1a1a1a; border: 1px solid #333; border-radius: 10px; justify-content: space-between; align-items: center; font-weight: bold; font-size: 16px;">
+                <span style="color: #aaa;">Общая стоимость:</span>
+                <span id="wh-total-sum" style="color: #00ff88;">0 ₽</span>
             </div>
+
+            <!-- Сюда выводится список материалов из JS -->
+            <div id="warehouse-list"></div>
         </div>
     </div>
 </div>

@@ -675,12 +675,16 @@ function renderWarehouse() {
   updateWarehouseWarnings(data);
 
   // 5. Пустое состояние
+  // 5. Пустое состояние
   if (filtered.length === 0) {
     box.innerHTML = '<div class="empty-state" style="text-align:center; color:#ff9800; padding:20px; font-weight:bold;">' +
       (data.length === 0
         ? 'Склад пуст. Добавьте материал.'
         : 'Ничего не найдено по текущему фильтру или поиску.') +
       '</div>';
+
+    const totalRow = document.getElementById('wh-total-row');
+    if (totalRow) totalRow.style.display = 'none';
     return;
   }
 
@@ -737,6 +741,26 @@ function renderWarehouse() {
   });
 
   box.innerHTML = html;
+
+  // --- РАСЧЕТ ОБЩЕЙ СТОИМОСТИ СКЛАДА ---
+  const totalRow = document.getElementById('wh-total-row');
+  const totalSumEl = document.getElementById('wh-total-sum');
+
+  if (totalRow && totalSumEl) {
+      // Считаем по всему массиву data, а не по отфильтрованному
+      const totalCost = data.reduce((sum, item) => {
+          const qty = Number(item.qty) || 0;
+          const price = Number(item.price) || 0;
+          return sum + (qty * price);
+      }, 0);
+
+      if (totalCost > 0) {
+          totalRow.style.display = 'flex';
+          totalSumEl.innerText = totalCost.toLocaleString('ru-RU') + ' ' + (settings.currency || '₽');
+      } else {
+          totalRow.style.display = 'none';
+      }
+  }
 }
 
 // Раскрытие/сворачивание категории
