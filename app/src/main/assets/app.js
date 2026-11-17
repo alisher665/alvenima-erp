@@ -592,182 +592,386 @@ function parseReminderVoice(lower) {
 // ==========================================
 // СКЛАД (НОВАЯ ЛОГИКА)
 // ==========================================
+// ==========================================
+// КАТЕГОРИИ СКЛАДА (системная + редактируемые)
+// ==========================================
+// Системная категория — удалять нельзя, в неё падают материалы без категории
+const SYSTEM_CATEGORY = 'Без категории';
+
+// Первичный набор категорий (заполняется один раз, дальше редактируется свободно)
+const DEFAULT_CATEGORIES = ['Расходники', 'Инструмент', 'Материалы', 'Электрика', 'Сантехника'];
+
+// Категории прораба: редактируемый список
+function loadUserCategories() {
+    if (!localStorage.getItem(getStorageKey('wh_categories_seeded'))) {
+        localStorage.setItem(getStorageKey('wh_categories'), JSON.stringify(DEFAULT_CATEGORIES));
+        localStorage.setItem(getStorageKey('wh_categories_seeded'), '1');
+        return DEFAULT_CATEGORIES.slice();
+    }
+    try {
+        const arr = JSON.parse(localStorage.getItem(getStorageKey('wh_categories'))) || [];
+        return Array.isArray(arr) ? arr : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveUserCategories(cats) {
+    localStorage.setItem(getStorageKey('wh_categories'), JSON.stringify(cats));
+}
+
+// Наполняет select #wh-category: системная + категории прораба + найденные на складе
+// Наполняет select #wh-category: системная + категории прораба + найденные на складе
+function updateCategorySelect(data) {
+    const categoryEl = document.getElementById('wh-category');
+    if (!categoryEl) return;
+
+    // Один раз вешаем обработчик выбора пункта "Новая категория"
+    ensureCategorySelectListener();
+
+    const currentValue = categoryEl.value;
+    const userCats = loadUserCategories();
+
+    const known = new Set([SYSTEM_CATEGORY].concat(userCats));
+    const extraCats = new Set();
+    (data || []).forEach(item => {
+        const c = (item.category || '').trim();
+        if (c && !known.has(c)) extraCats.add(c);
+    });
+
+    const sorted = [SYSTEM_CATEGORY]
+        .concat(userCats.sort((a, b) => a.localeCompare(b, 'ru')))
+        .concat([...extraCats].sort((a, b) => a.localeCompare(b, 'ru')));
+
+    let newHtml = sorted.map(c => '<option value="' + c.replace(/"/g, '&quot;') + '">' + c + '</option>').join('');
+
+    if (categoryEl.innerHTML !== newHtml) {
+        categoryEl.innerHTML = newHtml;
+        categoryEl.value = sorted.includes(currentValue) ? currentValue : sorted[0];
+    }
+}
+
+// Вешает обработчик на select категорий (только один раз, защищено флагом)
+function ensureCategorySelectListener() {
+    const categoryEl = document.getElementById('wh-category');
+    if (!categoryEl || categoryEl.dataset.catListener === '1') return;
+    categoryEl.dataset.catListener = '1';
+
+    categoryEl.addEventListener('change', function() {
+        // Обычный выбор категории — ничего не делаем
+        if (this.value !== '__add_new__') return;
+
+        const name = (prompt('Название новой категории:') || '').trim();
+        if (!name) {
+            this.value = SYSTEM_CATEGORY;
+            return;
+        }
+
+        const cats = loadUserCategories();
+        if (name.toLowerCase() === SYSTEM_CATEGORY.toLowerCase() ||
+            cats.some(c => c.toLowerCase() === name.toLowerCase())) {
+            logStatus('Такая категория уже есть');
+            speak('Уже есть');
+            this.value = SYSTEM_CATEGORY;
+            return;
+        }
+
+        cats.push(name);
+        saveUserCategories(cats);
+
+        renderWarehouse();
+
+        const el = document.getElementById('wh-category');
+        if (el) el.value = name;
+
+        logStatus('✅ Категория добавлена: ' + name);
+        speak('Категория добавлена');
+    });
+}
+
+
+// ==========================================
+// МЕНЕДЖЕР КАТЕГОРИЙ
+// ==========================================
+window.openCategoryManager = function() {
+    const modal = document.getElementById('category-modal');
+    if (!modal) return;
+    renderCategoryManagerList();
+    modal.classList.remove('hidden');
+    modal.style.display = 'flex';
+    logStatus('Управление категориями');
+};
+
+window.closeCategoryManager = function() {
+    const modal = document.getElementById('category-modal');
+    if (!modal) return;
+    modal.style.display = 'none';
+    modal.classList.add('hidden');
+    const input = document.getElementById('new-cat-input');
+    if (input) input.value = '';
+};
+
+function renderCategoryManagerList() {
+    const list = document.getElementById('category-manager-list');
+    if (!list) return;
+
+    const userCats = loadUserCategories();
+    let html = '';
+
+    html += '<div style="display: flex; justify-content: space-between; align-items: center; background: #151515; border: 1px solid #333; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;">';
+    html += '<span style="color: #fff; font-size: 14px;">' + SYSTEM_CATEGORY + '</span>';
+    html += '<span style="color: #555; font-size: 12px; white-space: nowrap;">системная</span>';
+    html += '</div>';
+
+    userCats.forEach(cat => {
+        html += '<div style="display: flex; justify-content: space-between; align-items: center; background: #151515; border: 1px solid #333; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;">';
+        html += '<span style="color: #fff; font-size: 14px;">' + cat + '</span>';
+        html += '<button onclick="deleteUserCategory(\'' + cat.replace(/'/g, "\\'") + '\')" style="background: #ff4444; border: none; color: #fff; border-radius: 6px; padding: 5px 10px; cursor: pointer; font-size: 12px; white-space: nowrap;">Удалить</button>';
+        html += '</div>';
+    });
+
+    if (userCats.length === 0) {
+        html += '<p style="color: #666; font-size: 13px; text-align: center; margin: 10px 0;">Все категории удалены. Добавьте нужные выше.</p>';
+    }
+
+    list.innerHTML = html;
+}
+
+window.addUserCategory = function() {
+    const input = document.getElementById('new-cat-input');
+    if (!input) return;
+    const name = input.value.trim();
+
+    if (!name) { logStatus('Ошибка: введите название категории'); return; }
+    if (name.toLowerCase() === SYSTEM_CATEGORY.toLowerCase()) {
+        logStatus('Ошибка: "' + SYSTEM_CATEGORY + '" — системная категория, она уже есть');
+        return;
+    }
+
+    const userCats = loadUserCategories();
+    if (userCats.some(c => c.toLowerCase() === name.toLowerCase())) {
+        logStatus('Такая категория уже есть');
+        speak('Уже есть');
+        return;
+    }
+
+    userCats.push(name);
+    saveUserCategories(userCats);
+
+    input.value = '';
+    renderCategoryManagerList();
+    renderWarehouse();
+
+    logStatus('✅ Категория добавлена: ' + name);
+    speak('Категория добавлена');
+};
+
+window.deleteUserCategory = function(cat) {
+    if (cat === SYSTEM_CATEGORY) {
+        logStatus('"' + SYSTEM_CATEGORY + '" удалить нельзя — системная категория');
+        return;
+    }
+    if (!confirm('Удалить категорию "' + cat + '"?\nВсе её материалы будут переведены в "' + SYSTEM_CATEGORY + '".')) return;
+
+    let userCats = loadUserCategories();
+    userCats = userCats.filter(c => c !== cat);
+    saveUserCategories(userCats);
+
+    let data = JSON.parse(localStorage.getItem(getStorageKey('warehouse'))) || [];
+    let moved = 0;
+    data.forEach(item => {
+        if ((item.category || '').trim() === cat) {
+            item.category = SYSTEM_CATEGORY;
+            moved++;
+        }
+    });
+    localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(data));
+
+    openAccordions.warehouse.delete(cat);
+
+    renderCategoryManagerList();
+    renderWarehouse();
+
+    logStatus('Категория удалена. Материалов перемещено: ' + moved);
+    speak('Категория удалена');
+    };
+
 function renderWarehouse() {
-  const box = document.getElementById('warehouse-list');
-  if (!box) return;
+    const box = document.getElementById('warehouse-list');
+    if (!box) return;
 
-  // Синхронизируем активную кнопку фильтра при отрисовке
-  const activeBtn = document.querySelector(`.filter-btn[data-filter="${warehouseFilterMode || 'all'}"]`);
-  if (activeBtn) {
-      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-      activeBtn.classList.add('active');
-  }
+    // Синхронизируем активную кнопку фильтра при отрисовке
+    const activeBtn = document.querySelector(`.filter-btn[data-filter="${warehouseFilterMode || 'all'}"]`);
+    if (activeBtn) {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        activeBtn.classList.add('active');
+    }
 
-  const key = getStorageKey('warehouse');
-  let data = [];
-  try {
-    data = JSON.parse(localStorage.getItem(key) || '[]');
-  } catch (e) {
-    data = [];
-  }
-  if (!Array.isArray(data)) data = [];
+    const key = getStorageKey('warehouse');
+    let data = [];
+    try {
+        data = JSON.parse(localStorage.getItem(key) || '[]');
+    } catch (e) {
+        data = [];
+    }
+    if (!Array.isArray(data)) data = [];
+
+    updateCategorySelect(data);
 
     // 1. Поиск
     const searchInput = document.getElementById('wh-search');
     const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
 
-    // --- НОВЫЙ БЛОК: Умное автозаполнение формы ---
-  if (query.length > 0 && editingWarehouseId === null) {
-      const foundItem = data.find(i => i.name.toLowerCase().includes(query));
-      if (foundItem) {
-          const nameEl = document.getElementById('wh-name');
-          const qtyEl = document.getElementById('wh-qty');
-          const unitEl = document.getElementById('wh-unit');
-          const priceEl = document.getElementById('wh-price');
-          const categoryEl = document.getElementById('wh-category');
-          const addBtn = document.getElementById('add-wh-btn');
-          const cancelBtn = document.getElementById('cancel-edit-wh-btn');
+    // --- Умное автозаполнение формы / очистка при пустом поиске ---
+    if (query.length > 0 && editingWarehouseId === null) {
+        const foundItem = data.find(i => i.name.toLowerCase().includes(query));
+        if (foundItem) {
+            const nameEl = document.getElementById('wh-name');
+            const qtyEl = document.getElementById('wh-qty');
+            const unitEl = document.getElementById('wh-unit');
+            const priceEl = document.getElementById('wh-price');
+            const categoryEl = document.getElementById('wh-category');
+            const addBtn = document.getElementById('add-wh-btn');
+            const cancelBtn = document.getElementById('cancel-edit-wh-btn');
 
-          // Заполняем только если поле пустое
-          if (nameEl && nameEl.value.trim() === '') {
-              nameEl.value = foundItem.name;
-              if (qtyEl) qtyEl.value = foundItem.qty || 0;
-              if (unitEl) unitEl.value = foundItem.unit || 'шт.';
-              if (priceEl) priceEl.value = foundItem.price || '';
-              if (categoryEl && foundItem.category) categoryEl.value = foundItem.category;
+            if (nameEl) nameEl.value = foundItem.name;
+            if (qtyEl) qtyEl.value = foundItem.qty || 1;
+            if (unitEl) unitEl.value = foundItem.unit || 'шт';
+            if (priceEl) priceEl.value = foundItem.price || '';
+            if (categoryEl) categoryEl.value = foundItem.category || '';
+            if (addBtn) addBtn.textContent = 'Обновить';
+            if (cancelBtn) cancelBtn.style.display = 'inline-block';
 
-              // Включаем режим редактирования
-              editingWarehouseId = foundItem.id;
-              if (addBtn) addBtn.innerText = "Сохранить изменения";
-              if (cancelBtn) cancelBtn.classList.remove('hidden');
-          }
-      }
-  } else if (query.length === 0 && editingWarehouseId === null) {
-      // Очистка формы при пустом поиске
-      const nameEl = document.getElementById('wh-name');
-      if (nameEl && nameEl.value !== '') {
-          document.getElementById('wh-name').value = '';
-          document.getElementById('wh-qty').value = '';
-          document.getElementById('wh-price').value = '';
-      }
-  }
+            editingWarehouseId = foundItem.id;
+        }
+    } else if (query.length === 0 && editingWarehouseId === null) {
+        const nameEl = document.getElementById('wh-name');
+        if (nameEl && nameEl.value !== '') {
+            document.getElementById('wh-name').value = '';
+            document.getElementById('wh-qty').value = '';
+            document.getElementById('wh-price').value = '';
+        }
+    }
 
-    // ----------------------------------------------
     // 2. Фильтр
-  if (typeof warehouseFilterMode === 'undefined' || !warehouseFilterMode) {
-    warehouseFilterMode = 'all';
-  }
+    if (typeof warehouseFilterMode === 'undefined' || !warehouseFilterMode) {
+        warehouseFilterMode = 'all';
+    }
 
-  // 3. Применяем поиск + фильтр
-  let filtered = data.filter(item => {
-    const name = (item.name || '').toLowerCase();
-    const cat = (item.category || '').toLowerCase();
-    const matchQuery = !query || name.indexOf(query) !== -1 || cat.indexOf(query) !== -1;
-    if (!matchQuery) return false;
+    // 3. Применяем поиск + фильтр
+    let filtered = data.filter(item => {
+        const name = (item.name || '').toLowerCase();
+        const cat = (item.category || '').toLowerCase();
+        const matchQuery = !query || name.indexOf(query) !== -1 || cat.indexOf(query) !== -1;
+        if (!matchQuery) return false;
 
-    const qty = Number(item.qty) || 0;
-    if (warehouseFilterMode === 'low') return qty > 0 && qty <= 5;
-    if (warehouseFilterMode === 'out') return qty <= 0;
-    return true;
-  });
-
-  // 4. Плашка предупреждений
-  updateWarehouseWarnings(data);
-
-  // 5. Пустое состояние
-  // 5. Пустое состояние
-  if (filtered.length === 0) {
-    box.innerHTML = '<div class="empty-state" style="text-align:center; color:#ff9800; padding:20px; font-weight:bold;">' +
-      (data.length === 0
-        ? 'Склад пуст. Добавьте материал.'
-        : 'Ничего не найдено по текущему фильтру или поиску.') +
-      '</div>';
-
-    const totalRow = document.getElementById('wh-total-row');
-    if (totalRow) totalRow.style.display = 'none';
-    return;
-  }
-
-  // 6. Группировка по категориям
-  const groups = {};
-  filtered.forEach(item => {
-    const cat = item.category && item.category.trim() ? item.category.trim() : 'Без категории';
-    if (!groups[cat]) groups[cat] = [];
-    groups[cat].push(item);
-  });
-
-  // 7. Сортировка категорий по алфавиту
-  const categories = Object.keys(groups).sort((a, b) => a.localeCompare(b, 'ru'));
-
-  // 8. Рендер аккордеонов
-  let html = '';
-  categories.forEach(cat => {
-    const isOpen = openAccordions.warehouse.has(cat);
-    const items = groups[cat].slice().sort((a, b) =>
-      (a.name || '').localeCompare(b.name || '', 'ru')
-    );
-
-    html += '<div class="wh-category-block" data-category="' + cat + '" style="margin-bottom:15px; background:#1a1a1a; border-radius:10px; overflow:hidden; border:1px solid #333;">';
-    html += '<div class="wh-category-header" onclick="toggleWarehouseCategory(\'' + cat.replace(/'/g, "\\'") + '\')" style="display:flex; justify-content:space-between; align-items:center; padding:12px 15px; background:#222; cursor:pointer; font-weight:bold; color:#fff;">';
-    html += '<span class="wh-category-arrow">' + (isOpen ? '▾' : '▸') + '</span>';
-    html += '<span class="wh-category-name" style="flex:1; margin-left:10px;">' + cat + '</span>';
-    html += '<span class="wh-category-count" style="background:#333; color:#00c2ff; padding:2px 8px; border-radius:10px; font-size:12px;">' + items.length + '</span>';
-    html += '</div>';
-
-    if (isOpen) {
-      html += '<div class="wh-category-body" style="padding:10px;">';
-      items.forEach(item => {
         const qty = Number(item.qty) || 0;
-        const qtyColor = qty <= 0 ? 'color:#ff4444; font-weight:bold;' : (qty <= 5 ? 'color:#ff9800; font-weight:bold;' : 'color:#aaa;');
-        html += '<div class="wh-card" style="display:flex; justify-content:space-between; align-items:center; background:#151515; border:1px solid #222; border-radius:8px; padding:10px; margin-bottom:8px;">';
-        html += '<div class="wh-card-main">';
-        html += '<div class="wh-card-title" style="font-weight:bold; font-size:14px; color:#fff;">' + (item.name || '') + '</div>';
-        html += '<div class="wh-card-qty" style="font-size:13px; ' + qtyColor + '">' + qty + ' ' + (item.unit || '') + '</div>';
-        if (item.price) {
-          html += '<div class="wh-card-price" style="font-size:12px; color:#666;">' + item.price + ' ₽</div>';
+        if (warehouseFilterMode === 'low') return qty > 0 && qty <= 5;
+        if (warehouseFilterMode === 'out') return qty <= 0;
+        return true;
+    });
+
+    // 4. Плашка предупреждений
+    updateWarehouseWarnings(data);
+
+    // 5. Пустое состояние
+    if (filtered.length === 0) {
+        box.innerHTML = '<div class="empty-state" style="text-align:center; color:#ff9800; padding:20px; font-weight:bold;">' +
+            (data.length === 0
+                ? 'Склад пуст. Добавьте материал.'
+                : 'Ничего не найдено по текущему фильтру или поиску.') +
+            '</div>';
+
+        const totalRow = document.getElementById('wh-total-row');
+        if (totalRow) totalRow.style.display = 'none';
+        return;
+    }
+
+    // 6. Группировка по категориям
+    const groups = {};
+    filtered.forEach(item => {
+        const cat = item.category && item.category.trim() ? item.category.trim() : 'Без категории';
+        if (!groups[cat]) groups[cat] = [];
+        groups[cat].push(item);
+    });
+
+    // 7. Сортировка категорий по алфавиту
+    const categories = Object.keys(groups).sort((a, b) => a.localeCompare(b, 'ru'));
+
+    // 8. Рендер аккордеонов
+    let html = '';
+    categories.forEach(cat => {
+        const isOpen = openAccordions.warehouse.has(cat);
+        const items = groups[cat].slice().sort((a, b) =>
+            (a.name || '').localeCompare(b.name || '', 'ru')
+        );
+
+        html += '<div class="wh-category-block" data-category="' + cat + '" style="margin-bottom:15px; background:#1a1a1a; border-radius:10px; overflow:hidden; border:1px solid #333;">';
+html += '<div class="wh-category-header" style="display:flex; justify-content:space-between; align-items:center; padding:12px 15px; background:#222; font-weight:bold; color:#fff;">';
+html += '<div onclick="toggleWarehouseCategory(\'' + cat.replace(/'/g, "\\'") + '\')" style="display:flex; align-items:center; cursor:pointer; flex:1;">';
+html += '<span class="wh-category-arrow">' + (isOpen ? '▾' : '▸') + '</span>';
+html += '<span class="wh-category-name" style="margin-left:10px;">' + cat + '</span>';
+html += '</div>';
+if (cat !== SYSTEM_CATEGORY) {
+    html += '<button onclick="deleteUserCategory(\'' + cat.replace(/'/g, "\\'") + '\')" style="background:none; border:none; color:#ff4444; cursor:pointer; font-size:16px; margin-right:8px;" title="Удалить категорию">✕</button>';
+}
+html += '<span class="wh-category-count" style="background:#333; color:#00c2ff; padding:2px 8px; border-radius:10px; font-size:12px;">' + items.length + '</span>';
+html += '</div>';
+
+
+        if (isOpen) {
+            html += '<div class="wh-category-body" style="padding:10px;">';
+            items.forEach(item => {
+                const qty = Number(item.qty) || 0;
+                const qtyColor = qty <= 0 ? 'color:#ff4444; font-weight:bold;' : (qty <= 5 ? 'color:#ff9800; font-weight:bold;' : 'color:#aaa;');
+                html += '<div class="wh-card" style="display:flex; justify-content:space-between; align-items:center; background:#151515; border:1px solid #222; border-radius:8px; padding:10px; margin-bottom:8px;">';
+                html += '<div class="wh-card-main">';
+                html += '<div class="wh-card-title" style="font-weight:bold; font-size:14px; color:#fff;">' + (item.name || '') + '</div>';
+                html += '<div class="wh-card-qty" style="font-size:13px; ' + qtyColor + '">' + qty + ' ' + (item.unit || '') + '</div>';
+                if (item.price) {
+                    html += '<div class="wh-card-price" style="font-size:12px; color:#666;">' + item.price + ' ₽</div>';
+                }
+                html += '</div>';
+                html += '<div class="wh-card-actions" style="display:flex; gap:5px;">';
+
+                const isTracked = item.trackQty !== false;
+                const bellColor = isTracked ? '#00c2ff' : '#555';
+                html += '<button class="wh-btn" onclick="toggleWarehouseTracking(' + item.id + ')" style="background:#222; border:1px solid #444; color:' + bellColor + '; border-radius:6px; padding:5px 10px; cursor:pointer;" title="Отслеживать остаток">🔔</button>';
+
+                html += '<button class="wh-btn" onclick="changeWarehouseQty(' + item.id + ', 1)" style="background:#222; border:1px solid #444; color:#00ff88; border-radius:6px; padding:5px 10px; cursor:pointer;">+</button>';
+                html += '<button class="wh-btn" onclick="changeWarehouseQty(' + item.id + ', -1)" style="background:#222; border:1px solid #444; color:#ff9800; border-radius:6px; padding:5px 10px; cursor:pointer;">-</button>';
+                html += '<button class="wh-btn" onclick="startEditWarehouse(' + item.id + ')" style="background:#222; border:1px solid #444; color:#00c2ff; border-radius:6px; padding:5px 10px; cursor:pointer;">✏️</button>';
+                html += '<button class="wh-btn" onclick="deleteWarehouseItem(' + item.id + ')" style="background:#222; border:1px solid #444; color:#ff4444; border-radius:6px; padding:5px 10px; cursor:pointer;">✕</button>';
+                html += '</div>';
+                html += '</div>';
+            });
+            html += '</div>';
         }
         html += '</div>';
-        html += '<div class="wh-card-actions" style="display:flex; gap:5px;">';
+    });
 
-        // Кнопка отслеживания (вкл/выкл)
-        const isTracked = item.trackQty !== false; // По умолчанию включено
-        const bellColor = isTracked ? '#00c2ff' : '#555';
-        html += '<button class="wh-btn" onclick="toggleWarehouseTracking(' + item.id + ')" style="background:#222; border:1px solid #444; color:' + bellColor + '; border-radius:6px; padding:5px 10px; cursor:pointer;" title="Отслеживать остаток">🔔</button>';
+    box.innerHTML = html;
 
-        html += '<button class="wh-btn" onclick="changeWarehouseQty(' + item.id + ', 1)" style="background:#222; border:1px solid #444; color:#00ff88; border-radius:6px; padding:5px 10px; cursor:pointer;">+</button>';
-        html += '<button class="wh-btn" onclick="changeWarehouseQty(' + item.id + ', -1)" style="background:#222; border:1px solid #444; color:#ff9800; border-radius:6px; padding:5px 10px; cursor:pointer;">-</button>';
-        html += '<button class="wh-btn" onclick="startEditWarehouse(' + item.id + ')" style="background:#222; border:1px solid #444; color:#00c2ff; border-radius:6px; padding:5px 10px; cursor:pointer;">✏️</button>';
-        html += '<button class="wh-btn" onclick="deleteWarehouseItem(' + item.id + ')" style="background:#222; border:1px solid #444; color:#ff4444; border-radius:6px; padding:5px 10px; cursor:pointer;">✕</button>';
-        html += '</div>';
-        html += '</div>';
-      });
-      html += '</div>';
+    // --- РАСЧЕТ ОБЩЕЙ СТОИМОСТИ СКЛАДА ---
+    const totalRow = document.getElementById('wh-total-row');
+    const totalSumEl = document.getElementById('wh-total-sum');
+
+    if (totalRow && totalSumEl) {
+        const totalCost = data.reduce((sum, item) => {
+            const qty = Number(item.qty) || 0;
+            const price = Number(item.price) || 0;
+            return sum + (qty * price);
+        }, 0);
+
+        if (totalCost > 0) {
+            totalRow.style.display = 'flex';
+            totalSumEl.innerText = totalCost.toLocaleString('ru-RU') + ' ' + (settings.currency || '₽');
+        } else {
+            totalRow.style.display = 'none';
+        }
     }
-    html += '</div>';
-  });
-
-  box.innerHTML = html;
-
-  // --- РАСЧЕТ ОБЩЕЙ СТОИМОСТИ СКЛАДА ---
-  const totalRow = document.getElementById('wh-total-row');
-  const totalSumEl = document.getElementById('wh-total-sum');
-
-  if (totalRow && totalSumEl) {
-      // Считаем по всему массиву data, а не по отфильтрованному
-      const totalCost = data.reduce((sum, item) => {
-          const qty = Number(item.qty) || 0;
-          const price = Number(item.price) || 0;
-          return sum + (qty * price);
-      }, 0);
-
-      if (totalCost > 0) {
-          totalRow.style.display = 'flex';
-          totalSumEl.innerText = totalCost.toLocaleString('ru-RU') + ' ' + (settings.currency || '₽');
-      } else {
-          totalRow.style.display = 'none';
-      }
-  }
 }
+
 
 // Раскрытие/сворачивание категории
 function toggleWarehouseCategory(cat) {
@@ -810,14 +1014,55 @@ function deleteWarehouseItem(id) {
 function toggleWarehouseTracking(id) {
     let data = JSON.parse(localStorage.getItem(getStorageKey('warehouse'))) || [];
     let item = data.find(i => i.id === id);
-    if (item) {
-        // Если было true или не задано, ставим false, и наоборот
-        item.trackQty = (item.trackQty === false) ? true : false;
+    if (!item) return;
+
+    // Повторное нажатие — выключаем и убираем время
+    if (item.trackQty) {
+        item.trackQty = false;
+        item.remindTime = null;
         localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(data));
         renderWarehouse();
-        logStatus(item.trackQty ? 'Отслеживание включено' : 'Отслеживание выключено');
+        logStatus('Отслеживание выключено');
+        return;
     }
+
+    // Спрашиваем дату и время
+    const input = prompt('Когда напомнить?\nФормат: ГГГГ-ММ-ДД ЧЧ:ММ\nНапример: 2026-11-18 09:00');
+    if (!input) return;
+
+    const t = new Date(input).getTime();
+    if (isNaN(t)) { logStatus('Неверный формат даты'); return; }
+    if (t <= Date.now()) { logStatus('Это время уже прошло'); return; }
+
+    item.trackQty = true;
+    item.remindTime = t; // сохраняем время!
+
+    localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(data));
+    renderWarehouse();
+    logStatus('Напоминание установлено');
 }
+
+// Проверка напоминаний каждые 30 секунд
+setInterval(() => {
+    const data = JSON.parse(localStorage.getItem(getStorageKey('warehouse'))) || [];
+    const now = Date.now();
+    let changed = false;
+
+    data.forEach(item => {
+        if (item.trackQty && item.remindTime && now >= item.remindTime) {
+            showReminder(item);
+            item.trackQty = false;   // снимаем флажок, чтобы не сработало дважды
+            item.remindTime = null;
+            changed = true;
+        }
+    });
+
+    if (changed) {
+        localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(data));
+        renderWarehouse();
+    }
+}, 30000);
+
 
 // Редактирование материала
 function startEditWarehouse(id) {
@@ -1032,19 +1277,34 @@ function parseWarehouseVoice(lower) {
     renderWarehouse();
 }
 
+// Парсер денег: принимает число или строку ("1 200", "1 200,50", "1200.50")
+function parseMoney(val) {
+    if (typeof val === 'number') return isFinite(val) ? val : 0;
+    if (typeof val !== 'string') return 0;
+    const cleaned = val.replace(/[\s\u00A0\u202F]/g, '').replace(',', '.');
+    const n = parseFloat(cleaned);
+    return isFinite(n) ? n : 0;
+}
+
+// Единая функция итога склада — используется и в UI, и в PDF
+function getWarehouseTotal(data) {
+    return (data || []).reduce((sum, item) => {
+        return sum + parseMoney(item.qty) * parseMoney(item.price);
+    }, 0);
+}
+
+
 function createWarehousePdfHtml() {
     const dateStr = new Date().toLocaleDateString('ru-RU');
     let rowsHtml = '';
-    let total = 0;
 
     let data = JSON.parse(localStorage.getItem(getStorageKey('warehouse'))) || [];
     data.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'));
 
     data.forEach((item, index) => {
-        const qty = Number(item.qty) || 0;
-        const price = Number(item.price) || 0;
+        const qty = parseMoney(item.qty);
+        const price = parseMoney(item.price);
         const sum = qty * price;
-        total += sum;
 
         rowsHtml += `<tr>
             <td style="border: 1px solid #000; padding: 8px; text-align: center;">${index + 1}</td>
@@ -1055,6 +1315,8 @@ function createWarehousePdfHtml() {
             <td style="border: 1px solid #000; padding: 8px; text-align: right; font-weight: bold;">${sum.toLocaleString('ru-RU')} ₽</td>
         </tr>`;
     });
+
+    const total = getWarehouseTotal(data);
 
     const savedLogo = localStorage.getItem('my_logo');
     let logoHtml = savedLogo ? `<img src="${savedLogo}" style="max-height: 60px; max-width: 120px; object-fit: contain; margin-bottom: 5px;">` : '';
@@ -1086,8 +1348,8 @@ function createWarehousePdfHtml() {
             </thead>
             <tbody>${rowsHtml}</tbody>
         </table>
-        <div style="text-align: right; margin-bottom: 30px;">
-            <h2 style="margin: 0; font-size: 18px; border-bottom: 2px solid #000; display: inline-block; padding-bottom: 5px;">ИТОГО: ${total.toLocaleString('ru-RU')} ₽</h2>
+        <div style="margin-top: 10px; margin-bottom: 30px; text-align: right;">
+            <div style="display: inline-block; border: 2px solid #000; padding: 10px 24px; font-size: 18px; font-weight: bold;">ИТОГО: ${total.toLocaleString('ru-RU')} ₽</div>
         </div>
         <div style="display: flex; justify-content: space-between; margin-top: 30px; font-size: 14px;">
             <div style="width: 45%;">
@@ -1104,11 +1366,24 @@ function createWarehousePdfHtml() {
     </div>`;
 }
 
+
 async function exportWarehousePDF() {
     if (!window.jspdf || !window.html2canvas) {
         alert("Библиотеки для PDF не загружены.");
         return;
     }
+
+    let pdfData = [];
+    try {
+        pdfData = JSON.parse(localStorage.getItem(getStorageKey('warehouse'))) || [];
+    } catch (e) {
+        pdfData = [];
+    }
+    if (!Array.isArray(pdfData)) pdfData = [];
+    const pdfTotal = getWarehouseTotal(pdfData);
+
+    // Диагностика: итог пишется в статусную строку ДО генерации
+    logStatus('PDF: материалов ' + pdfData.length + ', итог ' + pdfTotal.toLocaleString('ru-RU') + ' ' + (settings.currency || '₽'));
 
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF('p', 'mm', 'a4');
@@ -1120,8 +1395,12 @@ async function exportWarehousePDF() {
     const tempDiv = document.createElement('div');
     tempDiv.style.position = 'absolute';
     tempDiv.style.left = '-9999px';
+    tempDiv.style.top = '0px';
+    tempDiv.style.width = '800px';
+    tempDiv.style.backgroundColor = '#ffffff';
     tempDiv.innerHTML = createWarehousePdfHtml();
     document.body.appendChild(tempDiv);
+
 
     try {
         const canvas = await html2canvas(tempDiv, { scale: 2, backgroundColor: '#ffffff' });
@@ -1153,15 +1432,17 @@ async function exportWarehousePDF() {
         const pdfBase64 = doc.output('datauristring');
         if (window.AndroidApp && window.AndroidApp.savePdf) {
             window.AndroidApp.savePdf(pdfBase64);
-            logStatus('PDF сохранен!');
+            logStatus('PDF сохранен! Итог: ' + pdfTotal.toLocaleString('ru-RU') + ' ' + (settings.currency || '₽'));
         } else {
             doc.save(`Склад_${new Date().getTime()}.pdf`);
+            logStatus('PDF сохранен! Итог: ' + pdfTotal.toLocaleString('ru-RU') + ' ' + (settings.currency || '₽'));
         }
     } catch (error) {
-        console.error(error);
+        logStatus('Ошибка PDF: ' + error.message);
         alert("Ошибка при создании PDF: " + error.message);
     }
 }
+
 
 // ==========================================
 // СМЕТА, ФИНАНСЫ, ДНЕВНИК, НАПОМИНАНИЯ
@@ -1600,6 +1881,37 @@ window.addReminderManual = function() {
     document.getElementById('rem-text').value = ''; document.getElementById('rem-date').value = ''; document.getElementById('rem-time').value = '';
     statusDiv.innerText = "✅ Напоминание добавлено!"; statusDiv.style.color = "#00ff88"; setTimeout(()=>{statusDiv.innerText='';}, 2000);
 };
+// ===== Проверка напоминаний (страховка, если Java-будильник молчит) =====
+function showReminder(rem) {
+    const msg = '⏰ НАПОМИНАНИЕ: ' + (rem.text || 'Без названия');
+    if (window.AndroidApp && window.AndroidApp.showToast) {
+        window.AndroidApp.showToast(msg);
+    } else {
+        alert(msg);
+    }
+    logStatus('Сработало: ' + (rem.text || 'напоминание'));
+}
+
+function startReminderCheck() {
+    if (window._reminderInterval) return; // не запускаем дважды
+    window._reminderInterval = setInterval(() => {
+        const now = Date.now();
+        let triggered = false;
+        remindersData.forEach(rem => {
+            if (rem.time && now >= rem.time) {
+                showReminder(rem);
+                rem.time = null; // чтобы не сработало повторно
+                triggered = true;
+            }
+        });
+        if (triggered) {
+            localStorage.setItem(getStorageKey('reminders'), JSON.stringify(remindersData));
+            renderReminders();
+        }
+    }, 10000);
+}
+
+startReminderCheck();
 
 function renderReminders() {
     const listDiv = document.getElementById('reminders-list');

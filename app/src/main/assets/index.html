@@ -115,7 +115,7 @@
 <div id="view-settings" class="hidden" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
     <div style="width: 100%; max-width: 500px; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;">
         <button class="back-btn" onclick="switchView('home')">← Назад</button>
-        <div class="global-object-badge" id="badge-settings">📁 Загрузка...</div>
+        <div class="global-object-badge" id="badge-settings">Загрузка...</div>
     </div>
     <div class="container">
         <h2>Настройки</h2>
@@ -157,14 +157,13 @@
             <div style="display: flex; align-items: center; gap: 10px;">
                 <div id="logo-preview" style="display: flex; justify-content: center; align-items: center; gap: 6px;"></div>
                 <input type="file" id="logo-upload" accept="image/*" style="display: none;" onchange="handleLogoUpload(event)">
-                <button onclick="document.getElementById('logo-upload').click()" style="padding: 8px 14px; background: #222; border: 1px solid #444; color: #00c2ff; border-radius: 8px; cursor: pointer; font-size: 13px; white-space: nowrap;">🖼️ Загрузить</button>
+                <button onclick="document.getElementById('logo-upload').click()" style="padding: 8px 14px; background: #222; border: 1px solid #444; color: #00c2ff; border-radius: 8px; cursor: pointer; font-size: 13px; white-space: nowrap;"> Загрузить</button>
             </div>
         </div>
 
         <button class="btn-add" onclick="saveSettings()">Сохранить настройки</button>
 
         <div class="divider" style="margin-top: 30px;">ДАННЫЕ СОХРАНЯЮТСЯ В ПАМЯТИ ТЕЛЕФОНА</div>
-        <button class="btn-add" onclick="createAppShortcut()" style="background: #333; border: 1px solid #555; box-shadow: none; margin-bottom: 10px;">📱 Создать ярлык</button>
         <button class="btn-add" onclick="exportData()" style="background: #333; border: 1px solid #555; box-shadow: none; margin-bottom: 10px;">📤 Создать бэкап</button>
     </div>
 </div>
@@ -233,7 +232,11 @@
         </div>
 
         <!-- ФОРМА ДОБАВЛЕНИЯ/ПРИХОДА -->
-        <div class="divider">ПРИХОД / ДОБАВИТЬ МАТЕРИАЛ</div>
+        <div class="divider" style="display: flex; justify-content: space-between; align-items: center;">
+            <span>ДОБАВИТЬ МАТЕРИАЛ</span>
+            <button onclick="openCategoryManager()" style="background: #222; border: 1px solid #00c2ff; color: #00c2ff; border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 13px; white-space: nowrap;">добавить Категорию</button>
+        </div>
+
         <div class="form-card" id="wh-form-card">
             <div class="input-wrapper">
                 <input type="text" id="wh-name" placeholder=" ">
@@ -245,11 +248,11 @@
                     <option value="Без категории">Без категории</option>
                     <option value="Расходники">Расходники</option>
                     <option value="Инструмент">Инструмент</option>
-                    <option value="Материалы">Материалы</option>
+                    <option value="Строй-материалы">Строй-материалы</option>
                     <option value="Электрика">Электрика</option>
                     <option value="Сантехника">Сантехника</option>
                 </select>
-                <label>Категория</label>
+                <label class="label-always-up">Категория</label>
             </div>
 
             <div style="display: flex; gap: 10px;">
@@ -403,6 +406,20 @@
         </div>
 
         <div class="list-container" style="background: #111; padding: 15px; margin-top: 20px;"><div id="diary-list"></div><button onclick="clearAllDiary()" style="width: 100%; margin-top: 15px; padding: 10px; background: #ff4444; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">🗑 Очистить дневник</button></div>
+    </div>
+</div>
+<div id="category-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 9999; justify-content: center; align-items: center;">
+    <div style="background: #1a1a1a; border: 1px solid #00c2ff; border-radius: 12px; width: 92%; max-width: 420px; max-height: 80vh; overflow-y: auto; padding: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h3 style="margin: 0; color: #00c2ff; font-size: 18px;">Категории склада</h3>
+            <button onclick="closeCategoryManager()" style="background: none; border: none; color: #ff4444; font-size: 20px; cursor: pointer;">✕</button>
+        </div>
+        <div style="display: flex; gap: 8px; margin-bottom: 15px;">
+            <input type="text" id="new-cat-input" placeholder="Название категории" onkeydown="if(event.key==='Enter') addUserCategory()" style="flex: 1; padding: 10px 12px; background: #151515; border: 1px solid #333; border-radius: 8px; color: #fff; font-size: 14px; outline: none;">
+            <button onclick="addUserCategory()" style="background: #00c2ff; border: none; color: #000; border-radius: 8px; padding: 10px 16px; cursor: pointer; font-weight: bold; white-space: nowrap;">+ Добавить</button>
+        </div>
+        <div id="category-manager-list" style="margin-bottom: 10px;"></div>
+        <p style="color: #666; font-size: 12px; margin: 0;">«Без категории» — системная, не удаляется. При удалении категории материалы переезжают в «Без категории».</p>
     </div>
 </div>
 

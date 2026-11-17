@@ -682,6 +682,7 @@ input:focus, select:focus, textarea:focus {
     transition: all 0.3s ease;
     background: #151515;
     padding: 0 5px;
+    z-index: 0; /* ДОБАВИТЬ ЭТУ СТРОКУ */
 }
 
 /* Когда поле в фокусе или в нем есть текст — заголовок уезжает наверх */
@@ -689,12 +690,15 @@ input:focus, select:focus, textarea:focus {
 .input-wrapper input:not(:placeholder-shown) ~ label,
 .input-wrapper textarea:focus ~ label,
 .input-wrapper textarea:not(:placeholder-shown) ~ label,
-.input-wrapper select:focus ~ label {
+.input-wrapper select:focus ~ label,
+.input-wrapper select:valid ~ label,
+.input-wrapper label.label-always-up {
     top: -10px;
     left: 10px;
     font-size: 12px;
     color: #00c2ff;
     font-weight: bold;
+    z-index: 2; /* ДОБАВИТЬ ЭТУ СТРОКУ */
 }
 
 /* Если текста нет, а поле потеряло фокус — возвращаем на место (для textarea) */

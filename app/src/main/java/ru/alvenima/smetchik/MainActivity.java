@@ -3,14 +3,18 @@ package ru.alvenima.smetchik;
 import android.Manifest;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.media.AudioAttributes;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
+import android.media.RingtoneManager;
 import android.media.MediaRecorder;
 import android.net.Uri;
 import android.os.Build;
@@ -70,11 +74,43 @@ public class MainActivity extends AppCompatActivity {
     private boolean isTtsReady = false;
 
     private ValueCallback<Uri[]> mFilePathCallback;
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Uri soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
+            if (soundUri == null) {
+                soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+            }
+
+            NotificationChannel ch = new NotificationChannel(
+                    "reminders", "Напоминания", NotificationManager.IMPORTANCE_HIGH);
+            ch.setDescription("Напоминания приложения");
+            ch.enableVibration(true);
+            ch.setVibrationPattern(new long[]{0, 400, 300, 400, 300, 400});
+
+            AudioAttributes attrs = new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build();
+            ch.setSound(soundUri, attrs);
+
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.createNotificationChannel(ch);
+            }
+        }
+    }
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        createNotificationChannel(); // Создаём канал уведомлений со звуком
+
         getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+
+
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             getWindow().setStatusBarColor(Color.BLACK);
@@ -340,7 +376,9 @@ public class MainActivity extends AppCompatActivity {
 
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, timestamp, pendingIntent);
+                    AlarmManager.AlarmClockInfo info =
+                            new AlarmManager.AlarmClockInfo(timestamp, null);
+                    alarmManager.setAlarmClock(info, pendingIntent);
                 } else {
                     alarmManager.setExact(AlarmManager.RTC_WAKEUP, timestamp, pendingIntent);
                 }
@@ -348,6 +386,7 @@ public class MainActivity extends AppCompatActivity {
             } catch (SecurityException e) {
                 showToast("Ошибка: нет разрешения на будильник");
             }
+
         }
 
         @JavascriptInterface
