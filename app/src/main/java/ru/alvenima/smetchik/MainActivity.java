@@ -1,5 +1,6 @@
 package ru.alvenima.smetchik;
 
+import android.util.Log;
 import android.Manifest;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
@@ -69,6 +70,7 @@ public class MainActivity extends AppCompatActivity {
     private Thread recordingThread;
     private boolean isRecording = false;
     private String lastRecognizedText = "";
+    private String lastPartial = "";
 
     private TextToSpeech tts;
     private boolean isTtsReady = false;
@@ -411,7 +413,6 @@ public class MainActivity extends AppCompatActivity {
 
             try {
                 recognizer = new Recognizer(model, 16000.0f);
-                lastRecognizedText = "";
 
                 int bufferSize = AudioRecord.getMinBufferSize(16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT) * 2;
                 audioRecord = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, 16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize);
@@ -426,18 +427,25 @@ public class MainActivity extends AppCompatActivity {
                     while (isRecording) {
                         int bytesRead = audioRecord.read(buffer, 0, buffer.length);
                         if (bytesRead > 0) {
+                                String partial = extractTextFromJson(recognizer.getPartialResult());
+                                if (!partial.isEmpty() && !partial.equals(lastPartial)) {
+                                    lastPartial = partial;
+                                    Log.d("VOICE", "partial: " + partial);
+                                    String js = "window.onVoicePartial(" + JSONObject.quote(partial) + ");";
+
+                                runOnUiThread(() -> {
+                                    if (webView != null) webView.evaluateJavascript(js, null);
+                                });
+                            }
                             if (recognizer.acceptWaveForm(buffer, bytesRead)) {
                                 String result = recognizer.getResult();
                                 String cleanText = extractTextFromJson(result);
                                 if (!cleanText.isEmpty()) {
-                                    lastRecognizedText = cleanText;
                                     sendTextToJS(cleanText);
                                 }
-                                runOnUiThread(() -> {
-                                    if (webView != null) webView.evaluateJavascript("onVoskResult(" + JSONObject.quote(cleanText) + ")", null);
-                                });
                             }
                         }
+
                     }
                 });
                 recordingThread.start();
@@ -451,6 +459,8 @@ public class MainActivity extends AppCompatActivity {
         public void stopVosk() {
             if (!isRecording) return;
             isRecording = false;
+            lastPartial = "";
+
 
             try {
                 if (recordingThread != null) recordingThread.join();
@@ -463,17 +473,12 @@ public class MainActivity extends AppCompatActivity {
                     String finalResult = recognizer.getFinalResult();
                     String cleanText = extractTextFromJson(finalResult);
                     if (!cleanText.isEmpty()) {
-                        lastRecognizedText = cleanText;
                         sendTextToJS(cleanText);
                     }
-                    String toSend = lastRecognizedText.isEmpty() ? "" : lastRecognizedText;
-                    runOnUiThread(() -> {
-                        if (webView != null) webView.evaluateJavascript("onVoskResult(" + JSONObject.quote(toSend) + ")", null);
-                    });
-                    lastRecognizedText = "";
                     recognizer.close();
                     recognizer = null;
                 }
+
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -481,18 +486,15 @@ public class MainActivity extends AppCompatActivity {
 
         private String extractTextFromJson(String json) {
             try {
-                int start = json.indexOf("\"text\"");
-                if (start != -1) {
-                    start = json.indexOf(":", start) + 1;
-                    int end = json.lastIndexOf("}");
-                    String textPart = json.substring(start, end).trim();
-                    if (textPart.startsWith("\"")) textPart = textPart.substring(1);
-                    if (textPart.endsWith("\"")) textPart = textPart.substring(0, textPart.length() - 1);
-                    return textPart.trim();
-                }
-            } catch (Exception ignored) {}
-            return "";
+                JSONObject obj = new JSONObject(json);
+                String text = obj.optString("text", "");
+                if (text.isEmpty()) text = obj.optString("partial", "");
+                return text.trim();
+            } catch (Exception ignored) {
+                return "";
+            }
         }
+
 
         private void sendTextToJS(String text) {
             runOnUiThread(() -> {

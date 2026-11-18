@@ -160,8 +160,16 @@
                 <button onclick="document.getElementById('logo-upload').click()" style="padding: 8px 14px; background: #222; border: 1px solid #444; color: #00c2ff; border-radius: 8px; cursor: pointer; font-size: 13px; white-space: nowrap;"> Загрузить</button>
             </div>
         </div>
+    </div> <!-- Закрывает form-card с брендингом -->
 
-        <button class="btn-add" onclick="saveSettings()">Сохранить настройки</button>
+    <!-- НОВЫЙ БЛОК: Базы цен -->
+    <div class="divider" style="margin-top: 30px;">БАЗЫ ЦЕН</div>
+    <div style="padding: 0 20px;"> <!-- Контейнер для отступов -->
+        <button class="btn-add" onclick="switchView('price-works')" style="background: #1a1c23; border: 1px solid #00c2ff; color: #00c2ff; box-shadow: none; margin-bottom: 10px;">📚 Справочник работ</button>
+        <button class="btn-add" onclick="switchView('price-materials')" style="background: #1a1c23; border: 1px solid #00c2ff; color: #00c2ff; box-shadow: none; margin-bottom: 20px;">📦 Справочник материалов</button>
+    </div>
+
+    <button class="btn-add" onclick="saveSettings()">Сохранить настройки</button>
 
         <div class="divider" style="margin-top: 30px;">ДАННЫЕ СОХРАНЯЮТСЯ В ПАМЯТИ ТЕЛЕФОНА</div>
         <button class="btn-add" onclick="exportData()" style="background: #333; border: 1px solid #555; box-shadow: none; margin-bottom: 10px;">📤 Создать бэкап</button>
@@ -273,9 +281,14 @@
             </div>
 
             <div class="input-wrapper">
-                <input type="text" inputmode="decimal" id="wh-price" placeholder=" ">
+                <input type="text" inputmode="decimal" id="wh-buy-price" placeholder="">
                 <label>Цена закупки (₽)</label>
             </div>
+            <div class="input-wrapper">
+                <input type="text" inputmode="decimal" id="wh-price" placeholder="">
+                <label>Цена продажи (₽)</label>
+            </div>
+
 
             <div style="display: flex; gap: 10px; margin-top: 10px;">
                 <button id="add-wh-btn" class="btn-add" style="flex: 1;" onclick="addWarehouseManual()">Добавить (Приход)</button>
@@ -312,9 +325,10 @@
 
         <div class="form-card">
             <div class="input-wrapper">
-                <input type="text" id="work-name" placeholder=" " autocomplete="off">
+                <input type="text" id="work-name" placeholder=" " autocomplete="off" oninput="onWorkNameInput()" onblur="setTimeout(() => { let dd = document.getElementById('work-name-suggestions'); if(dd) dd.classList.add('hidden'); }, 200)">
                 <label>Название работы</label>
             </div>
+            <div id="work-name-suggestions" class="hidden" style="background: #0d0d0d; border: 1px solid #333; border-radius: 10px; margin-top: -15px; margin-bottom: 15px; overflow: hidden; position: relative; z-index: 10;"></div>
 
             <div style="display: flex; gap: 10px;">
                 <div class="input-wrapper" style="flex: 2;">
@@ -423,8 +437,97 @@
     </div>
 </div>
 
+<!-- ================= СПРАВОЧНИК МАТЕРИАЛОВ ================= -->
+<div id="view-price-materials" class="hidden" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
+    <div style="width: 100%; max-width: 500px; margin-bottom: 10px;">
+        <button class="back-btn" onclick="switchView('settings')">← Назад</button>
+    </div>
+
+    <div class="container">
+        <h2>Справочник материалов</h2>
+        <div class="divider">БАЗА ЗАКУПОЧНЫХ ЦЕН</div>
+
+        <div class="form-card">
+            <div class="input-wrapper">
+                <input type="text" id="pm-name" placeholder=" ">
+                <label>Название материала</label>
+            </div>
+
+            <div style="display: flex; gap: 10px;">
+                <div class="input-wrapper" style="flex: 2;">
+                    <input type="number" id="pm-price" placeholder=" ">
+                    <label>Цена</label>
+                </div>
+                <div class="input-wrapper" style="flex: 1;">
+                    <select id="pm-unit">
+                        <option value="шт.">шт.</option>
+                        <option value="меш.">меш.</option>
+                        <option value="кг">кг</option>
+                        <option value="м.">м.</option>
+                        <option value="м²">м²</option>
+                        <option value="л">л</option>
+                    </select>
+                    <label class="label-always-up">Ед. изм.</label>
+                </div>
+            </div>
+
+            <button class="btn-add" onclick="addPriceMaterial()" style="margin-top: 10px;">Добавить в базу</button>
+        </div>
+
+        <div class="list-container" style="background: #111; padding: 15px; margin-top: 20px;">
+            <h3 class="list-header">Список материалов</h3>
+            <div id="price-materials-list"></div>
+        </div>
+    </div>
+</div>
+
 <!-- ================= ПОДКЛЮЧЕНИЕ ЛОГИКИ ================= -->
 <script src="app.js"></script>
 
+<!-- ================= ПОДКЛЮЧЕНИЕ ЛОГИКИ ================= -->
+<!-- ================= СПРАВОЧНИК РАБОТ ================= -->
+<div id="view-price-works" class="hidden" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
+    <div style="width: 100%; max-width: 500px; margin-bottom: 10px;">
+        <button class="back-btn" onclick="switchView('settings')">← Назад</button>
+    </div>
+
+    <div class="container">
+        <h2>Справочник работ</h2>
+        <div class="divider">БАЗА ЦЕН НА РАБОТЫ</div>
+
+        <div class="form-card">
+            <div class="input-wrapper">
+                <input type="text" id="pw-name" placeholder=" ">
+                <label>Название работы</label>
+            </div>
+
+            <div style="display: flex; gap: 10px;">
+                <div class="input-wrapper" style="flex: 2;">
+                    <input type="number" id="pw-price" placeholder=" ">
+                    <label>Цена</label>
+                </div>
+                <div class="input-wrapper" style="flex: 1;">
+                    <select id="pw-unit">
+                        <option value="м²">м²</option>
+                        <option value="м.п.">м.п.</option>
+                        <option value="шт.">шт.</option>
+                        <option value="компл.">компл.</option>
+                    </select>
+                    <label class="label-always-up">Ед. изм.</label>
+                </div>
+            </div>
+
+            <button class="btn-add" onclick="addPriceWork()" style="margin-top: 10px;">Добавить в базу</button>
+        </div>
+
+        <div class="list-container" style="background: #111; padding: 15px; margin-top: 20px;">
+            <h3 class="list-header">Список работ</h3>
+            <div id="price-works-list"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ================= ПОДКЛЮЧЕНИЕ ЛОГИКИ ================= -->
+<script src="app.js"></script>
 </body>
 </html>

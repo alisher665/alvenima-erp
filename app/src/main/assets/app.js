@@ -183,6 +183,8 @@ window.selectObject = function(name) {
     diaryData = JSON.parse(localStorage.getItem(getStorageKey('diary'))) || [];
     remindersData = JSON.parse(localStorage.getItem(getStorageKey('reminders'))) || [];
     warehouseData = JSON.parse(localStorage.getItem(getStorageKey('warehouse'))) || [];
+        loadPriceWorks();
+        renderPriceWorks();
     renderEstimate(); renderFinance(); renderDiary(); renderReminders(); renderWarehouse();
     switchView('home');
     statusDiv.innerText = "Открыт объект: " + currentObject;
@@ -198,6 +200,8 @@ window.selectPersonalMode = function() {
     diaryData = JSON.parse(localStorage.getItem(getStorageKey('diary'))) || [];
     remindersData = JSON.parse(localStorage.getItem(getStorageKey('reminders'))) || [];
     warehouseData = JSON.parse(localStorage.getItem(getStorageKey('warehouse'))) || [];
+        loadPriceWorks();
+        renderPriceWorks();
     renderEstimate(); renderFinance(); renderDiary(); renderReminders(); renderWarehouse();
     switchView('home');
     statusDiv.innerText = "Открыт Личный блок";
@@ -348,6 +352,11 @@ const NUMBERS_MAP = { "ноль": 0, "один": 1, "одна": 1, "два": 2, 
 const UNITS_MAP = { "квадрат": "м²", "квадратов": "м²", "квадрата": "м²", "кв": "м²", "м2": "м²", "метр": "м.п.", "метров": "м.п.", "метра": "м.п.", "погонных": "м.п.", "штука": "шт.", "штук": "шт.", "штуки": "шт.", "шт": "шт.", "комплект": "компл.", "комплектов": "компл." };
 
 let voiceBuffer = ""; let voiceTimer = null;
+window.onVoicePartial = function (text) {
+    statusDiv.innerText = '🎙 ' + text;
+    statusDiv.style.color = '#888';
+};
+
 window.handleVoiceInput = (text) => {
     voiceBuffer += " " + text; statusDiv.innerText = 'Слушаю: ' + voiceBuffer.trim();
     if (voiceTimer) clearTimeout(voiceTimer);
@@ -378,6 +387,31 @@ function processVoiceCommand(text) {
         }
         awaitingConfirm = false; pendingDeleteAction = null; pendingItemId = null; statusDiv.innerText = "Отменено."; speak("Отменено");
     }
+
+// --- Голосовое создание категории склада ---
+if (awaitingWhCategoryName) {
+    awaitingWhCategoryName = false;
+    if (cleanText.includes('отмена')) {
+        statusDiv.innerText = "❌ Отменено."; speak("Отменeno");
+    } else {
+        addUserCategoryVoice('' + cleanText);
+    }
+    return;
+}
+if (cleanText.includes('категор')) {
+    const catCmd = cleanText.match(/(?:создай|добавь|сделай|новая)\s+(?:категорию|категория|категор)\s*(.*)$/);
+    if (catCmd) {
+        const name = catCmd[1].trim();
+        if (!name) {
+            awaitingWhCategoryName = true;
+            statusDiv.innerText = "📂 Название категории? Скажите его сейчас.";
+            speak("Название категории?");
+        } else {
+            addUserCategoryVoice(name);
+        }
+        return;
+    }
+}
 
     if (cleanText.includes("очисти") || cleanText.includes("очистить") || cleanText.includes("сбрось") || cleanText.includes("сбросить")) {
         if (currentMicMode === 'smeta') { document.getElementById('work-name').value = ''; document.getElementById('work-qty').value = ''; document.getElementById('work-price').value = ''; }
@@ -578,7 +612,7 @@ function parseReminderVoice(lower) {
     }
     if (targetDate.getTime() < now.getTime() && !lower.includes("завтра") && !lower.includes("послезавтра")) targetDate.setDate(targetDate.getDate() + 1);
     if (!foundTime) { statusDiv.innerText = "Не понял время. Скажите: 'Через 5 минут' или 'В 15:30'"; return; }
-    let eventText = lower.replace(/напомни|напоминание|завтра|послезавтра|сегодня/g, '').replace(/через\s+[а-яё0-9]+\s*(минут|минуту|минуты|час|часа|часов)?/g, '').replace(/в\s+\d{1,2}[\s:]?\d{0,2}/g, '').replace(/дня|вечера|утра/g, '').trim();
+        let eventText = lower.replace(/напоминание|напомни|послезавтра|завтра|сегодня/g, '').trim();
     if (!eventText) eventText = "Напоминание";
     if (window.AndroidApp && window.AndroidApp.setAlarm) {
         let timestamp = targetDate.getTime();
@@ -597,6 +631,64 @@ function parseReminderVoice(lower) {
 // ==========================================
 // Системная категория — удалять нельзя, в неё падают материалы без категории
 const SYSTEM_CATEGORY = 'Без категории';
+// Приводит название к сравнимой форме: нижний регистр, "ё" -> "е",
+// без дефисов и тире, срезанные падежные окончания
+function normalizeCategoryName(str) {
+    let s = String(str).toLowerCase().replace(/ё/g, 'е');
+    s = s.replace(/[^а-я0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    s = s.replace(/[-\u2013\u2014]/g, ''); // дефисы и тире убираем вместе с пробелами вокруг
+    // Срезаем типовые падежные окончания последнего слова
+    const endings = ['ами','ями','ов','ев','ах','ях','ой','ей','ый','ий','ая','яя','ые','ие','у','ю','а','я','ы','и','е','ь'];
+    const parts = s.split(' ');
+    const last = parts.pop();
+    if (last && last.length > 3) {
+        for (const e of endings) {
+            if (last.length - e.length >= 3 && last.endsWith(e)) {
+                parts.push(last.slice(0, last.length - e.length));
+                break;
+            }
+        }
+        if (parts.length === 0) parts.push(last);
+    } else if (last) {
+        parts.push(last);
+    }
+    return parts.join(' ');
+}
+
+// Ищет категорию во фрагменте фразы по живому списку.
+// Источники: категории пользователя + системная + категории из товаров склада.
+// Возвращает точное название категории из хранилища или null.
+function findVoiceCategory(fragment) {
+    if (!fragment) return null;
+    const fragNorm = normalizeCategoryName(fragment);
+    if (!fragNorm) return null;
+
+    // Живой список: пользовательские + системная + найденные у товаров
+    let candidates = loadUserCategories().slice();
+    if (candidates.indexOf(SYSTEM_CATEGORY) === -1) candidates.push(SYSTEM_CATEGORY);
+    try {
+        const data = JSON.parse(localStorage.getItem(getStorageKey('warehouse'))) || [];
+        if (Array.isArray(data)) {
+            data.forEach(item => {
+                const c = (item.category || '').trim();
+                if (c && candidates.indexOf(c) === -1) candidates.push(c);
+            });
+        }
+    } catch (e) {}
+
+    let bestMatch = null;
+    let bestLen = 0;
+    for (const cat of candidates) {
+        const catNorm = normalizeCategoryName(cat);
+        if (!catNorm) continue;
+        if (fragNorm.indexOf(catNorm) === 0 && catNorm.length > bestLen) {
+            bestMatch = cat;
+            bestLen = catNorm.length;
+        }
+    }
+    return bestMatch;
+}
+
 
 // Первичный набор категорий (заполняется один раз, дальше редактируется свободно)
 const DEFAULT_CATEGORIES = ['Расходники', 'Инструмент', 'Материалы', 'Электрика', 'Сантехника'];
@@ -620,7 +712,30 @@ function saveUserCategories(cats) {
     localStorage.setItem(getStorageKey('wh_categories'), JSON.stringify(cats));
 }
 
-// Наполняет select #wh-category: системная + категории прораба + найденные на складе
+// Создание категории голосом: нормализует, проверяет дубли, сохраняет
+function addUserCategoryVoice(name) {
+    name = name.replace(/[^а-яё0-9\s-]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!name) {
+        statusDiv.innerText = "⚠️ Название категории не распознано.";
+        speak("Не распознала название");
+        return;
+    }
+    name = name.charAt(0).toUpperCase() + name.slice(1);
+    const cats = loadUserCategories();
+    const nameNorm = normalizeCategoryName(name);
+    if (cats.some(c => normalizeCategoryName(c) === nameNorm)) {
+        logStatus('Такая категория уже есть');
+        speak('Уже есть');
+        return;
+    }
+    cats.push(name);
+    saveUserCategories(cats);
+    renderWarehouse();
+    logStatus('✅ Категория добавлена: ' + name);
+    speak('Категория ' + name + ' создана');
+}
+
+
 // Наполняет select #wh-category: системная + категории прораба + найденные на складе
 function updateCategorySelect(data) {
     const categoryEl = document.getElementById('wh-category');
@@ -924,26 +1039,27 @@ html += '</div>';
             items.forEach(item => {
                 const qty = Number(item.qty) || 0;
                 const qtyColor = qty <= 0 ? 'color:#ff4444; font-weight:bold;' : (qty <= 5 ? 'color:#ff9800; font-weight:bold;' : 'color:#aaa;');
-                html += '<div class="wh-card" style="display:flex; justify-content:space-between; align-items:center; background:#151515; border:1px solid #222; border-radius:8px; padding:10px; margin-bottom:8px;">';
-                html += '<div class="wh-card-main">';
-                html += '<div class="wh-card-title" style="font-weight:bold; font-size:14px; color:#fff;">' + (item.name || '') + '</div>';
-                html += '<div class="wh-card-qty" style="font-size:13px; ' + qtyColor + '">' + qty + ' ' + (item.unit || '') + '</div>';
-                if (item.price) {
-                    html += '<div class="wh-card-price" style="font-size:12px; color:#666;">' + item.price + ' ₽</div>';
-                }
-                html += '</div>';
-                html += '<div class="wh-card-actions" style="display:flex; gap:5px;">';
+html += '<div class="wh-card" style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; background:#151515; border:1px solid #222; border-radius:8px; padding:10px; margin-bottom:8px;">';
+html += '<div class="wh-card-main" style="min-width:0; flex:1;">';
+html += '<div class="wh-card-title" style="font-weight:bold; font-size:14px; color:#fff; overflow:hidden; text-overflow:ellipsis;">' + (item.name || '') + '</div>';
+html += '<div class="wh-card-qty" style="font-size:13px; ' + qtyColor + '">' + qty + ' ' + (item.unit || '') + '</div>';
+if (item.price) {
+    html += '<div class="wh-card-price" style="font-size:12px; color:#666;">' + item.price + ' ₽</div>';
+}
+html += '</div>';
+html += '<div class="wh-card-actions" style="display:flex; gap:3px; margin-left:auto;">';
 
-                const isTracked = item.trackQty !== false;
-                const bellColor = isTracked ? '#00c2ff' : '#555';
-                html += '<button class="wh-btn" onclick="toggleWarehouseTracking(' + item.id + ')" style="background:#222; border:1px solid #444; color:' + bellColor + '; border-radius:6px; padding:5px 10px; cursor:pointer;" title="Отслеживать остаток">🔔</button>';
+const isTracked = item.trackQty !== false;
+const bellColor = isTracked ? '#00c2ff' : '#555';
+html += '<button class="wh-btn" onclick="toggleWarehouseTracking(' + item.id + ')" style="background:#222; border:1px solid #444; color:' + bellColor + '; border-radius:6px; padding:5px 7px; cursor:pointer;" title="Отслеживать остаток">🔔</button>';
 
-                html += '<button class="wh-btn" onclick="changeWarehouseQty(' + item.id + ', 1)" style="background:#222; border:1px solid #444; color:#00ff88; border-radius:6px; padding:5px 10px; cursor:pointer;">+</button>';
-                html += '<button class="wh-btn" onclick="changeWarehouseQty(' + item.id + ', -1)" style="background:#222; border:1px solid #444; color:#ff9800; border-radius:6px; padding:5px 10px; cursor:pointer;">-</button>';
-                html += '<button class="wh-btn" onclick="startEditWarehouse(' + item.id + ')" style="background:#222; border:1px solid #444; color:#00c2ff; border-radius:6px; padding:5px 10px; cursor:pointer;">✏️</button>';
-                html += '<button class="wh-btn" onclick="deleteWarehouseItem(' + item.id + ')" style="background:#222; border:1px solid #444; color:#ff4444; border-radius:6px; padding:5px 10px; cursor:pointer;">✕</button>';
-                html += '</div>';
-                html += '</div>';
+html += '<button class="wh-btn" onclick="changeWarehouseQty(' + item.id + ', 1)" style="background:#222; border:1px solid #444; color:#00ff88; border-radius:6px; padding:5px 8px; cursor:pointer;">+</button>';
+html += '<button class="wh-btn" onclick="changeWarehouseQty(' + item.id + ', -1)" style="background:#222; border:1px solid #444; color:#ff9800; border-radius:6px; padding:5px 8px; cursor:pointer;">-</button>';
+html += '<button class="wh-btn" onclick="startEditWarehouse(' + item.id + ')" style="background:#222; border:1px solid #444; color:#00c2ff; border-radius:6px; padding:5px 8px; cursor:pointer;">✏️</button>';
+html += '<button class="wh-btn" onclick="deleteWarehouseItem(' + item.id + ')" style="background:#222; border:1px solid #444; color:#ff4444; border-radius:6px; padding:5px 8px; cursor:pointer;">✕</button>';
+html += '</div>';
+html += '</div>';
+
             });
             html += '</div>';
         }
@@ -1062,7 +1178,22 @@ setInterval(() => {
         renderWarehouse();
     }
 }, 30000);
+// --- НОВЫЙ БЛОК: запись расхода склада в финансы ---
+function addWhFinanceRecord(itemName, qty, buyPrice) {
+    const amount = parseFloat(qty) * parseFloat(buyPrice);
+    if (!amount || amount <= 0) return;
 
+    financeData.push({
+        id: Date.now(),
+        type: 'expense',
+        category: 'Склад',
+        amount: amount,
+        date: new Date().toLocaleDateString('ru-RU')
+    });
+
+    localStorage.setItem(getStorageKey('finance'), JSON.stringify(financeData));
+    if (typeof renderFinance === 'function') renderFinance();
+}
 
 // Редактирование материала
 function startEditWarehouse(id) {
@@ -1070,10 +1201,12 @@ function startEditWarehouse(id) {
     const item = data.find(i => i.id === id);
     if (!item) return;
 
-    document.getElementById('wh-name').value = item.name;
-    document.getElementById('wh-qty').value = item.qty;
-    document.getElementById('wh-unit').value = item.unit;
-    document.getElementById('wh-price').value = item.price || '';
+document.getElementById('wh-name').value = item.name;
+document.getElementById('wh-qty').value = item.qty;
+document.getElementById('wh-unit').value = item.unit;
+document.getElementById('wh-price').value = item.price || '';
+const buyPriceEl = document.getElementById('wh-buy-price');
+if (buyPriceEl) buyPriceEl.value = item.buyPrice || '';
 
     // --- НОВЫЙ БЛОК ---
     const categoryEl = document.getElementById('wh-category');
@@ -1136,6 +1269,7 @@ function setWarehouseFilter(mode) {
     renderWarehouse();
 }
 
+
 function addWarehouseManual() {
     const nameEl = document.getElementById('wh-name');
     const qtyEl = document.getElementById('wh-qty');
@@ -1147,6 +1281,9 @@ function addWarehouseManual() {
     const qty = parseFloat(qtyEl.value) || 0;
     const unit = unitEl.value;
     const price = parseFloat(priceEl.value) || 0;
+    const buyPriceEl = document.getElementById('wh-buy-price');
+    const buyPrice = buyPriceEl ? (parseFloat(buyPriceEl.value) || 0) : 0;
+
     const category = categoryEl ? categoryEl.value : 'Без категории';
 
     if (!name) { logStatus('Ошибка: Введите название материала'); return; }
@@ -1158,7 +1295,7 @@ function addWarehouseManual() {
         // РЕЖИМ РЕДАКТИРОВАНИЯ
         const index = data.findIndex(i => i.id === editingWarehouseId);
         if (index !== -1) {
-            data[index] = { ...data[index], name, qty, unit, price, category };
+            data[index] = { ...data[index], name, qty, unit, price, buyPrice, category };
         }
         editingWarehouseId = null;
         const cancelBtn = document.getElementById('cancel-edit-wh-btn');
@@ -1170,7 +1307,10 @@ function addWarehouseManual() {
         if (existingItem) {
             existingItem.qty = (Number(existingItem.qty) || 0) + qty;
             if (price > 0) existingItem.price = price;
+            if (buyPrice > 0) existingItem.buyPrice = buyPrice;
             existingItem.category = category;
+            openAccordions.warehouse.add(category);
+            addWhFinanceRecord(name, qty, buyPrice);
         } else {
             data.push({
                 id: Date.now(),
@@ -1178,11 +1318,13 @@ function addWarehouseManual() {
                 category: category,
                 qty: qty,
                 unit: unit,
-                price: price
-        });
-        openAccordions.warehouse.add(category);
+                price: price,
+                buyPrice: buyPrice
+            });
+            openAccordions.warehouse.add(category);
+            addWhFinanceRecord(name, qty, buyPrice);
+        }
     }
-}
 
     localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(data));
 
@@ -1195,8 +1337,33 @@ function addWarehouseManual() {
     speak("Сохранено");
 }
 
+// Ждём название новой категории после фразы "создай категорию"
+let awaitingWhCategoryName = false;
+
+let awaitingWhCategory = null;
+
 function parseWarehouseVoice(lower) {
     statusDiv.innerText = '🔍 Услышано: ' + lower;
+
+    // --- Ждём ответ на вопрос "В какую категорию?" ---
+    if (awaitingWhCategory) {
+        const pending = awaitingWhCategory;
+        awaitingWhCategory = null;
+        if (lower.includes('отмена') || lower.includes('нет')) {
+            statusDiv.innerText = "❌ Отменено."; speak("Отменено"); return;
+        }
+        const stripped = lower.replace(/^\s*(в|во|из)\s+/, '');
+        const cat = findVoiceCategory(stripped);
+        const chosen = cat || SYSTEM_CATEGORY;
+        let data = JSON.parse(localStorage.getItem(getStorageKey('warehouse'))) || [];
+        data.push({ id: Date.now(), name: pending.name, category: chosen, qty: pending.qty, unit: pending.unit, price: 0 });
+        localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(data));
+        openAccordions.warehouse.add(chosen);
+        renderWarehouse();
+        logStatus(`✅ Добавлено: ${pending.name} — ${pending.qty} ${pending.unit}, категория: ${chosen}`);
+        speak(cat ? `Категория ${cat}` : "Без категории");
+        return;
+    }
 
     if (lower.includes('покажи все') || lower.includes('все материалы')) {
         setWarehouseFilter('all'); statusDiv.innerText = 'Показаны все материалы'; speak("Показаны все материалы"); return;
@@ -1234,8 +1401,19 @@ function parseWarehouseVoice(lower) {
         statusDiv.innerText = "⚠️ Не понял команду. Скажите 'Добавь 5 мешков цемента' или 'Расход 2 кг гвоздей'."; return;
     }
 
+    // --- Поиск категории в конце фразы (после "в" или "из") ---
+    let recognizedCategory = null;
+    const catMatch = text.match(/(?:^|\s)(в|во|из)\s+([а-яё0-9\s\-]+)$/);
+    if (catMatch) {
+        recognizedCategory = findVoiceCategory(catMatch[2].trim());
+        if (recognizedCategory) {
+            text = text.slice(0, catMatch.index).trim(); // вырезаем категорию из фразы
+            words = text.split(' ').filter(w => w.length > 0);
+        }
+    }
+
     let nameWords = []; let qty = 0; let unit = 'шт.';
-    let skipWords = ['добавь', 'приход', 'купил', 'закупи', 'расход', 'спиши', 'потратил', 'израсходовал', 'материал', 'на', 'со', 'склада', 'склад', 'и', 'в'];
+    let skipWords = ['добавь', 'приход', 'купил', 'закупи', 'расход', 'спиши', 'потратил', 'израсходовал', 'материал', 'на', 'со', 'склада', 'склад', 'и', 'в', 'во', 'из'];
 
     for (let i = 0; i < words.length; i++) {
         let w = words[i].replace(/[^а-яё0-9]/g, '');
@@ -1262,10 +1440,15 @@ function parseWarehouseVoice(lower) {
         if (item) {
             item.qty = (Number(item.qty) || 0) + qty;
             logStatus(`Приход: ${item.name} +${qty} ${unit}. Теперь ${item.qty}`); speak(`Принято ${qty} ${unit} ${item.name}`);
+        } else if (recognizedCategory) {
+            data.push({ id: Date.now(), name: finalName, category: recognizedCategory, qty: qty, unit: unit, price: 0 });
+            openAccordions.warehouse.add(recognizedCategory);
+            logStatus(`Добавлен новый материал: ${finalName} (${recognizedCategory}) - ${qty} ${unit}`); speak(`Добавлен новый материал ${finalName}`);
         } else {
-            data.push({ id: Date.now(), name: finalName, category: 'Без категории', qty: qty, unit: unit, price: 0 });
-            logStatus(`Добавлен новый материал: ${finalName} - ${qty} ${unit}`); speak(`Добавлен новый материал ${finalName}`);
-            openAccordions.warehouse.add('Без категории');
+            awaitingWhCategory = { name: finalName, qty: qty, unit: unit };
+            statusDiv.innerText = "📦 В какую категорию добавить? Скажите название категории.";
+            speak("В какую категорию?");
+            return;
         }
     } else if (isExpense) {
         if (!item) { statusDiv.innerText = `⚠️ Материал "${finalName}" не найден.`; speak("Материал не найден"); return; }
@@ -1276,6 +1459,7 @@ function parseWarehouseVoice(lower) {
     localStorage.setItem(getStorageKey('warehouse'), JSON.stringify(data));
     renderWarehouse();
 }
+
 
 // Парсер денег: принимает число или строку ("1 200", "1 200,50", "1200.50")
 function parseMoney(val) {
@@ -1664,16 +1848,17 @@ function renderFinance() {
         if (!tree[year][month]) tree[year][month] = {};
         if (!tree[year][month][item.date]) tree[year][month][item.date] = [];
         tree[year][month][item.date].push(item);
-        grandTotal += item.amount;
+        grandTotal += (item.type === 'expense' ? -item.amount : item.amount);
     });
 
     const state = openAccordions.finance;
     let sortedYears = Object.keys(tree).sort((a, b) => parseInt(b) - parseInt(a));
     let fullHtml = '';
+    const totalColor = (t) => t >= 0 ? '#00ff88' : '#ff4444';
 
     sortedYears.forEach(year => {
         let yearTotal = 0;
-        Object.values(tree[year]).forEach(m => Object.values(m).forEach(d => d.forEach(i => yearTotal += i.amount)));
+        Object.values(tree[year]).forEach(m => Object.values(m).forEach(d => d.forEach(i => yearTotal += (i.type === 'expense' ? -i.amount : i.amount))));
 
         const yearContentId = `finance-year-content-${year}`;
         const yearIconId = `finance-year-icon-${year}`;
@@ -1683,7 +1868,7 @@ function renderFinance() {
             <div class="year-header" onclick="toggleAccordion('${yearContentId}', '${yearIconId}')" style="background: linear-gradient(135deg, #1a2a33, #0d1a20); padding: 15px 18px; border-radius: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 17px; font-weight: bold; color: #00c2ff; border: 1px solid #00c2ff;">
                 <span>📅 ${year} год</span>
                 <span style="display: flex; gap: 12px; align-items: center;">
-                    <span style="color: #00ff88; font-size: 15px;">${yearTotal.toLocaleString('ru-RU')} ₽</span>
+                    <span style="color: ${totalColor(yearTotal)}; font-size: 15px;">${yearTotal.toLocaleString('ru-RU')} ₽</span>
                     <span id="${yearIconId}">${yearOpen ? '▲' : '▼'}</span>
                 </span>
             </div>
@@ -1691,7 +1876,7 @@ function renderFinance() {
 
         Object.keys(tree[year]).sort((a, b) => parseInt(b) - parseInt(a)).forEach(month => {
             let key = year + '-' + month; let monthTotal = 0;
-            Object.values(tree[year][month]).forEach(d => d.forEach(i => monthTotal += i.amount));
+            Object.values(tree[year][month]).forEach(d => d.forEach(i => monthTotal += (i.type === 'expense' ? -i.amount : i.amount)));
 
             const monthContentId = `finance-month-content-${key}`;
             const monthIconId = `finance-month-icon-${key}`;
@@ -1701,7 +1886,7 @@ function renderFinance() {
                 <div class="month-header" onclick="toggleAccordion('${monthContentId}', '${monthIconId}')" style="background: #222; padding: 12px 16px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #fff; border: 1px solid #444;">
                     <span>📆 ${MONTH_NAMES[month]} ${year}</span>
                     <span style="display: flex; gap: 12px; align-items: center;">
-                        <span style="color: #00ff88; font-size: 14px;">${monthTotal.toLocaleString('ru-RU')} ₽</span>
+                        <span style="color: ${totalColor(monthTotal)}; font-size: 14px;">${monthTotal.toLocaleString('ru-RU')} ₽</span>
                         <span id="${monthIconId}">${monthOpen ? '▲' : '▼'}</span>
                     </span>
                 </div>
@@ -1709,7 +1894,7 @@ function renderFinance() {
 
             Object.keys(tree[year][month]).sort((a, b) => parseInt(b.split('.')[0]) - parseInt(a.split('.')[0])).forEach(date => {
                 let items = tree[year][month][date]; let dayTotal = 0;
-                items.forEach(i => dayTotal += i.amount);
+                items.forEach(i => dayTotal += (i.type === 'expense' ? -i.amount : i.amount));
                 let safeId = date.replace(/\./g, '_');
 
                 const dayContentId = `finance-day-content-${safeId}`;
@@ -1720,7 +1905,7 @@ function renderFinance() {
                     <div class="day-header" onclick="toggleAccordion('${dayContentId}', '${dayIconId}')" style="background: #1f1f1f; padding: 10px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: bold; color: #ccc; border-radius: 6px; border: 1px solid #333;">
                         <span>📅 ${date}</span>
                         <span style="display: flex; gap: 12px; align-items: center;">
-                            <span style="color: #00ff88; font-size: 13px;">${dayTotal.toLocaleString('ru-RU')} ₽</span>
+                            <span style="color: ${totalColor(dayTotal)}; font-size: 13px;">${dayTotal.toLocaleString('ru-RU')} ₽</span>
                             <span id="${dayIconId}">${dayOpen ? '▲' : '▼'}</span>
                         </span>
                     </div>
@@ -1765,6 +1950,7 @@ function renderFinance() {
 
     logStatus(`Финансы обновлены. Открыто блоков: ${openAccordions.finance.size}`);
 }
+
 window.deleteFinance = (id) => {
     financeData = financeData.filter(i => i.id !== id);
     localStorage.setItem(getStorageKey('finance'), JSON.stringify(financeData));
@@ -2087,3 +2273,197 @@ function createAppShortcut() {
         alert("Создание ярлыка доступно только в приложении.");
     }
 }
+// ==========================================
+// СПРАВОЧНИК РАБОТ (БАЗА ЦЕН)
+// ==========================================
+
+let priceWorks = [];
+
+function loadPriceWorks() {
+    priceWorks = JSON.parse(localStorage.getItem(getStorageKey('price_works'))) || [];
+}
+
+function persistPriceWorks() {
+    localStorage.setItem(getStorageKey('price_works'), JSON.stringify(priceWorks));
+}
+
+window.addPriceWork = function() {
+    let name = document.getElementById('pw-name').value.trim();
+    let price = parseFloat(document.getElementById('pw-price').value);
+    let unit = document.getElementById('pw-unit').value;
+
+    if (!name) { logStatus('❌ Введите название работы'); return; }
+    if (isNaN(price) || price < 0) { logStatus('❌ Введите корректную цену'); return; }
+
+    let existing = priceWorks.find(w => w.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+        existing.price = price;
+        existing.unit = unit;
+        logStatus('✅ Цена обновлена');
+    } else {
+        priceWorks.push({ id: 'pw_' + Date.now(), name: name, price: price, unit: unit });
+        logStatus('✅ Работа добавлена');
+    }
+
+    persistPriceWorks();
+    renderPriceWorks();
+
+    document.getElementById('pw-name').value = '';
+    document.getElementById('pw-price').value = '';
+};
+
+window.deletePriceWork = function(id) {
+    if (!confirm('Удалить эту работу из базы?')) return;
+    priceWorks = priceWorks.filter(w => w.id !== id);
+    persistPriceWorks();
+    renderPriceWorks();
+    logStatus('🗑 Работа удалена');
+};
+
+function renderPriceWorks() {
+    const container = document.getElementById('price-works-list');
+    if (!container) return;
+
+    if (priceWorks.length === 0) {
+        container.innerHTML = '<p style="color: #666; text-align: center;">В базе пока нет работ.</p>';
+        return;
+    }
+
+    let html = '';
+    priceWorks.forEach(w => {
+        html += `
+        <div class="estimate-item" style="margin-bottom: 8px; padding: 12px;">
+            <div class="item-info">
+                <div class="item-name" style="font-size: 14px;">${w.name}</div>
+                <div class="item-details" style="font-size: 12px;">${w.price} ₽ / ${w.unit}</div>
+            </div>
+            <button class="delete-item-btn" onclick="deletePriceWork('${w.id}')">✕</button>
+        </div>`;
+    });
+    container.innerHTML = html;
+}
+
+// Вызовы для загрузки при старте
+loadPriceWorks();
+renderPriceWorks();
+
+
+// ==========================================
+// СПРАВОЧНИК МАТЕРИАЛОВ (БАЗА ЦЕН)
+// ==========================================
+
+let priceMaterials = [];
+
+function loadPriceMaterials() {
+    priceMaterials = JSON.parse(localStorage.getItem(getStorageKey('price_materials'))) || [];
+}
+
+function persistPriceMaterials() {
+    localStorage.setItem(getStorageKey('price_materials'), JSON.stringify(priceMaterials));
+}
+
+window.addPriceMaterial = function() {
+    let name = document.getElementById('pm-name').value.trim();
+    let price = parseFloat(document.getElementById('pm-price').value);
+    let unit = document.getElementById('pm-unit').value;
+
+    if (!name) { logStatus('❌ Введите название материала'); return; }
+    if (isNaN(price) || price < 0) { logStatus('❌ Введите корректную цену'); return; }
+
+    let existing = priceMaterials.find(m => m.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+        existing.price = price;
+        existing.unit = unit;
+        logStatus('✅ Цена обновлена');
+    } else {
+        priceMaterials.push({ id: 'pm_' + Date.now(), name: name, price: price, unit: unit });
+        logStatus('✅ Материал добавлен');
+    }
+
+    persistPriceMaterials();
+    renderPriceMaterials();
+
+    document.getElementById('pm-name').value = '';
+    document.getElementById('pm-price').value = '';
+};
+
+window.deletePriceMaterial = function(id) {
+    if (!confirm('Удалить этот материал из базы?')) return;
+    priceMaterials = priceMaterials.filter(m => m.id !== id);
+    persistPriceMaterials();
+    renderPriceMaterials();
+    logStatus('🗑 Материал удален');
+};
+
+function renderPriceMaterials() {
+    const container = document.getElementById('price-materials-list');
+    if (!container) return;
+
+    if (priceMaterials.length === 0) {
+        container.innerHTML = '<p style="color: #666; text-align: center;">В базе пока нет материалов.</p>';
+        return;
+    }
+
+    let html = '';
+    priceMaterials.forEach(m => {
+        html += `
+        <div class="estimate-item" style="margin-bottom: 8px; padding: 12px;">
+            <div class="item-info">
+                <div class="item-name" style="font-size: 14px;">${m.name}</div>
+                <div class="item-details" style="font-size: 12px;">${m.price} ₽ / ${m.unit}</div>
+            </div>
+            <button class="delete-item-btn" onclick="deletePriceMaterial('${m.id}')">✕</button>
+        </div>`;
+    });
+    container.innerHTML = html;
+}
+
+// Вызовы для загрузки при старте
+loadPriceMaterials();
+renderPriceMaterials();
+
+// ==========================================
+// АВТОПОДСТАНОВКА ИЗ БАЗЫ (СМЕТА)
+// ==========================================
+
+window.onWorkNameInput = function() {
+    let val = document.getElementById('work-name').value.trim().toLowerCase();
+    let dd = document.getElementById('work-name-suggestions');
+    if (!dd) return;
+
+    if (val.length < 2) { dd.classList.add('hidden'); return; }
+
+    // Ищем в справочнике работ
+    let matches = priceWorks.filter(w => w.name.toLowerCase().includes(val)).slice(0, 5);
+
+    if (matches.length === 0) { dd.classList.add('hidden'); return; }
+
+    let html = '';
+    matches.forEach(w => {
+        html += `<div onclick="applyWorkFromBase('${w.name.replace(/'/g, "\\'")}', ${w.price}, '${w.unit}')"
+                      style="padding: 10px 15px; border-bottom: 1px solid #222; cursor: pointer; color: #fff; font-size: 14px;">
+                    ${w.name} <span style="color: #888; font-size: 12px;">— ${w.price} ₽/${w.unit}</span>
+                 </div>`;
+    });
+    dd.innerHTML = html;
+    dd.classList.remove('hidden');
+};
+
+window.applyWorkFromBase = function(name, price, unit) {
+    document.getElementById('work-name').value = name;
+    document.getElementById('work-price').value = price;
+
+    const unitSelect = document.getElementById('work-unit');
+    for (let i = 0; i < unitSelect.options.length; i++) {
+        if (unitSelect.options[i].value === unit) {
+            unitSelect.selectedIndex = i;
+            break;
+        }
+    }
+
+    let dd = document.getElementById('work-name-suggestions');
+    if (dd) dd.classList.add('hidden');
+
+    document.getElementById('work-qty').focus();
+    logStatus(`Выбрано из базы: ${name} (${price} ₽/${unit})`);
+    };
